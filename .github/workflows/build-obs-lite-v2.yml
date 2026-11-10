@@ -33,9 +33,10 @@ jobs:
           cd upstream
           git rev-parse HEAD
           if ((git rev-parse HEAD) -ne "65c320b46e1af5c7a555161aea6182cdf7a8c524") { throw "Upstream HEAD is not 65c320b - wrong OBS version, stopping" }
-          git submodule update --init plugins/obs-browser deps/libdshowcapture/src
+          git submodule update --init --recursive plugins/obs-browser deps/libdshowcapture/src
           if ($LASTEXITCODE -ne 0) { throw "Submodule init failed with exit code $LASTEXITCODE" }
           if (-not (Test-Path plugins/obs-browser/CMakeLists.txt)) { throw "obs-browser submodule missing" }
+          if (-not (Test-Path deps/libdshowcapture/src/external/capture-device-support/Library/EGAVResult.cpp)) { throw "libdshowcapture nested submodule missing: deps/libdshowcapture/src/external/capture-device-support/Library/EGAVResult.cpp not found - recursive submodule init failed" }
 
       - name: Apply OBS Lite v2 strip
         shell: pwsh
