@@ -1,0 +1,97 @@
+name: Build OBS Lite v2 Windows
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: build-obs-lite-v2-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-windows:
+    name: "Build Windows x64 (OBS Lite v2)"
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 300
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Clone upstream OBS Studio 33.0.1
+        shell: pwsh
+        run: |
+          git clone --depth 1 --branch 33.0.1 https://github.com/obsproject/obs-studio.git upstream
+          cd upstream
+          git rev-parse HEAD
+          if ((git rev-parse HEAD) -ne "65c320b46e1af5c7a555161aea6182cdf7a8c524") { throw "Upstream HEAD is not 65c320b - wrong OBS version, stopping" }
+          git submodule update --init plugins/obs-browser deps/libdshowcapture/src
+          if ($LASTEXITCODE -ne 0) { throw "Submodule init failed with exit code $LASTEXITCODE" }
+          if (-not (Test-Path plugins/obs-browser/CMakeLists.txt)) { throw "obs-browser submodule missing" }
+
+      - name: Apply OBS Lite v2 strip
+        shell: pwsh
+        run: |
+          python strip-lite-v2.py upstream
+          if ($LASTEXITCODE -ne 0) { throw "strip-lite-v2.py FAILED with exit code $LASTEXITCODE - stopping the build" }
+          cd upstream
+          if (Test-Path plugins/obs-x264) { throw "Strip did NOT land: plugins/obs-x264 still exists" }
+          if (Test-Path plugins/obs-text) { throw "Strip did NOT land: plugins/obs-text still exists" }
+          if (Test-Path plugins/obs-ffmpeg/obs-ffmpeg-openh264.c) { throw "Strip did NOT land: obs-ffmpeg-openh264.c still exists" }
+          if (Test-Path plugins/obs-filters/noise-suppress-filter.c) { throw "Strip did NOT land: noise-suppress-filter.c still exists" }
+          if (Test-Path plugins/obs-filters/mask-filter.c) { throw "Strip did NOT land: mask-filter.c still exists" }
+          if (-not (Test-Path plugins/win-capture)) { throw "Strip removed too much: win-capture is gone" }
+          if (-not (Test-Path plugins/win-dshow)) { throw "Strip removed too much: win-dshow is gone" }
+          if (-not (Test-Path plugins/obs-browser)) { throw "Strip removed too much: obs-browser is gone" }
+          if (-not (Test-Path plugins/obs-nvenc)) { throw "Strip removed too much: obs-nvenc is gone" }
+          if (-not (Test-Path plugins/obs-qsv11)) { throw "Strip removed too much: obs-qsv11 is gone" }
+          $plugins = (Get-ChildItem plugins -Directory | Select-Object -ExpandProperty Name)
+          Write-Host "Plugins left: $($plugins -join ', ')"
+          if ($plugins.Count -ne 12) { throw "Expected 12 plugins, got $($plugins.Count): $($plugins -join ', ')" }
+          Write-Host "Strip verified: 12 plugins, hardware encoders only"
+
+      - name: Build OBS Lite v2
+        shell: pwsh
+        working-directory: upstream
+        run: |
+          .github/scripts/Build-Windows.ps1 -Target x64 -Configuration RelWithDebInfo
+          if ($LASTEXITCODE -ne 0) { throw "Build-Windows.ps1 FAILED with exit code $LASTEXITCODE" }
+          if (-not (Test-Path build_x64/install/bin/64bit/obs64.exe)) { throw "Build did NOT produce build_x64/install/bin/64bit/obs64.exe" }
+          Write-Host "obs64.exe built"
+
+      - name: Verify lite build and package
+        shell: pwsh
+        working-directory: upstream
+        run: |
+          $exe = "build_x64/install/bin/64bit/obs64.exe"
+          if (Test-Path build_x64/install/bin/64bit/obs-x264.dll) { throw "Lite check FAILED: obs-x264.dll is in the build" }
+          if (Test-Path build_x64/install/bin/64bit/obs-text.dll) { throw "Lite check FAILED: obs-text.dll is in the build" }
+          Get-ChildItem build_x64/install -Recurse -Filter "*x264*" | ForEach-Object { throw "Lite check FAILED: x264 file in build: $($_.FullName)" }
+          Get-ChildItem build_x64/install -Recurse -Filter "*noise-suppress*" | ForEach-Object { throw "Lite check FAILED: noise-suppress file in build: $($_.FullName)" }
+          if (-not (Test-Path build_x64/install/bin/64bit/obs-nvenc.dll)) { Write-Host "NOTE: obs-nvenc.dll not found by that name - checking encoder plugins"; Get-ChildItem build_x64/install -Recurse -Filter "*nvenc*" }
+          if (Test-Path "OBS-Lite-v2.zip") { Remove-Item "OBS-Lite-v2.zip" -Force }
+          7z a OBS-Lite-v2.zip build_x64/install/*
+          if ($LASTEXITCODE -ne 0) { throw "7z packaging FAILED" }
+          (Get-FileHash OBS-Lite-v2.zip -Algorithm SHA256).Hash
+          (Get-FileHash $exe -Algorithm SHA256).Hash
+          Get-Item OBS-Lite-v2.zip | Select-Object Length
+
+      - name: Upload artifact (zip)
+        uses: actions/upload-artifact@v7
+        with:
+          name: OBS-Lite-v2.zip
+          path: upstream/OBS-Lite-v2.zip
+
+      - name: Upload artifact (exe)
+        uses: actions/upload-artifact@v7
+        with:
+          name: obs64.exe
+          path: upstream/build_x64/install/bin/64bit/obs64.exe
