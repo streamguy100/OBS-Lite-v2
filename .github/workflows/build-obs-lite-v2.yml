@@ -33,9 +33,10 @@ jobs:
           cd upstream
           git rev-parse HEAD
           if ((git rev-parse HEAD) -ne "65c320b46e1af5c7a555161aea6182cdf7a8c524") { throw "Upstream HEAD is not 65c320b - wrong OBS version, stopping" }
-          git submodule update --init --recursive plugins/obs-browser deps/libdshowcapture/src
+          git submodule update --init --recursive plugins/obs-browser plugins/obs-websocket deps/libdshowcapture/src
           if ($LASTEXITCODE -ne 0) { throw "Submodule init failed with exit code $LASTEXITCODE" }
           if (-not (Test-Path plugins/obs-browser/CMakeLists.txt)) { throw "obs-browser submodule missing" }
+          if (-not (Test-Path plugins/obs-websocket/CMakeLists.txt)) { throw "obs-websocket submodule missing" }
           if (-not (Test-Path deps/libdshowcapture/src/external/capture-device-support/Library/EGAVResult.cpp)) { throw "libdshowcapture nested submodule missing: deps/libdshowcapture/src/external/capture-device-support/Library/EGAVResult.cpp not found - recursive submodule init failed" }
 
       - name: Apply OBS Lite v2 strip
@@ -52,12 +53,13 @@ jobs:
           if (-not (Test-Path plugins/win-capture)) { throw "Strip removed too much: win-capture is gone" }
           if (-not (Test-Path plugins/win-dshow)) { throw "Strip removed too much: win-dshow is gone" }
           if (-not (Test-Path plugins/obs-browser)) { throw "Strip removed too much: obs-browser is gone" }
+          if (-not (Test-Path plugins/obs-websocket)) { throw "Strip removed too much: obs-websocket is gone - obs-browser needs its websocket-api target" }
           if (-not (Test-Path plugins/obs-nvenc)) { throw "Strip removed too much: obs-nvenc is gone" }
           if (-not (Test-Path plugins/obs-qsv11)) { throw "Strip removed too much: obs-qsv11 is gone" }
           $plugins = (Get-ChildItem plugins -Directory | Select-Object -ExpandProperty Name)
           Write-Host "Plugins left: $($plugins -join ', ')"
-          if ($plugins.Count -ne 12) { throw "Expected 12 plugins, got $($plugins.Count): $($plugins -join ', ')" }
-          Write-Host "Strip verified: 12 plugins, hardware encoders only"
+          if ($plugins.Count -ne 13) { throw "Expected 13 plugin folders, got $($plugins.Count): $($plugins -join ', ')" }
+          Write-Host "Strip verified: 13 plugin folders (12 built + obs-websocket API-only, server OFF), hardware encoders only"
 
       - name: Build OBS Lite v2
         shell: pwsh
@@ -75,6 +77,7 @@ jobs:
           $exe = "build_x64/install/bin/64bit/obs64.exe"
           if (Test-Path build_x64/install/bin/64bit/obs-x264.dll) { throw "Lite check FAILED: obs-x264.dll is in the build" }
           if (Test-Path build_x64/install/bin/64bit/obs-text.dll) { throw "Lite check FAILED: obs-text.dll is in the build" }
+          if (Test-Path build_x64/install/bin/64bit/obs-websocket.dll) { throw "Lite check FAILED: obs-websocket.dll is in the build - websocket server should be OFF" }
           Get-ChildItem build_x64/install -Recurse -Filter "*x264*" | ForEach-Object { throw "Lite check FAILED: x264 file in build: $($_.FullName)" }
           Get-ChildItem build_x64/install -Recurse -Filter "*noise-suppress*" | ForEach-Object { throw "Lite check FAILED: noise-suppress file in build: $($_.FullName)" }
           if (-not (Test-Path build_x64/install/bin/64bit/obs-nvenc.dll)) { Write-Host "NOTE: obs-nvenc.dll not found by that name - checking encoder plugins"; Get-ChildItem build_x64/install -Recurse -Filter "*nvenc*" }
