@@ -1,1 +1,117 @@
-IyBPQlMgUFM1IExpdGUgMzMuMC4zCgpTdHJlYW1pbmcgc29mdHdhcmUgbW9yZSBwb3dlcmZ1bCB0aGFuIFBTNSwgc3RpbGwgbGlnaHQgb24gdGhlIFBDIOKAlCA1MCUgUEMgYnVkZ2V0LgoKQmFzZTogb2JzcHJvamVjdC9vYnMtc3R1ZGlvLCB0YWcgMzMuMC4zLCBjb21taXQgYGYyYWE5Y2U2OWNhYTcyMzllZjI2NjYwYjU4ODlkZTRmNTNkOTg4MGVgLgpMaWNlbnNlOiBHUEwtMi4wLCBzZWUgdGhlIHVwc3RyZWFtIENPUFlJTkcuCgojIyBXaGF0IGl0IGlzCgpPQlMgU3R1ZGlvIDMzLjAuMyBzdHJpcHBlZCB0byB0aGUgUFM1LWxpdGUgc3BlYyBzaXIgbG9ja2VkIG9uZSBieSBvbmUgKDIzIGRlY2lzaW9ucykuCkhhcmR3YXJlIGVuY29kaW5nIG9ubHksIG5vIHNvZnR3YXJlIGVuY29kZXJzLCBubyBoZWF2eSBleHRyYXMg4oCUIGJ1dCB3aXRoIG1vcmUKcG93ZXIgdGhhbiBQUzU6IG11bHRpcGxlIHNjZW5lcywgbXVsdGlwbGUgbWljcyBhcyBzZXBhcmF0ZSBzb3VyY2VzLCBicm93c2VyCnNvdXJjZXMsIE5ESSwgTHVhIHNjcmlwdGluZywgbXVsdGktdHJhY2sgYXVkaW8sIGN1c3RvbSB0cmFuc2l0aW9ucywgdmlydHVhbApjYW1lcmEsIFN0dWRpbyBNb2RlLCBhbmQgdHdvIGluLWFwcCBjaGF0Ym94ZXMuCgojIyBUaGUgdHdvIGNoYXRib3hlcyAoYm90aCBpbiB0aGUgYXBwLCBib3RoIGxvY2FsLCBubyBpbnRlcm5ldCwgbm8gQUkgc2VydmljZSkKCiMjIyBDYW52YXMgQ2hhdGJveCDigJQgZG9ja2VkIEJFU0lERSB0aGUgY2FudmFzLCBvbiB0aGUgUklHSFQKVHlwZSBwbGFpbiB3b3JkcyBhbmQgaXQgZG9lcyBpdCBvbiB0aGUgY2FudmFzLiBOZXZlciBvbiB0b3Agb2YgdGhlIGNhbnZhcywKbmV2ZXIgaW5zaWRlIHRoZSBzY2VuZS4KLSBgYWRkIG15IHdlYmNhbSBib3R0b20gcmlnaHRgIC8gYGFkZCBnYW1lYCAvIGBhZGQgZGlzcGxheWAgLyBgYWRkIGJyb3dzZXIgaHR0cHM6Ly/igKZgIC8gYGFkZCBtaWNgIC8gYGFkZCB0ZXh0IGhlbGxvYCAvIGBhZGQgaW1hZ2UgIkM6XHBhdGhccGljLnBuZyJgCi0gYG1ha2UgdGhlIGdhbWUgYmlnZ2VyYCAvIGByZXNpemUgdGhlIGltYWdlIHRvIDUwJWAKLSBgbW92ZSB0aGUgd2ViY2FtIHRvIHRvcCBsZWZ0YAotIGByZW1vdmUgdGhlIHRleHRgCi0gYHNldCBiYWNrZ3JvdW5kIHRvIGJsYWNrYAotIGB1c2UgdGhpcyBpbWFnZSBhcyBiYWNrZ3JvdW5kYCAoc3RyZXRjaGVzIGFuIGltYWdlIHRvIHRoZSBmdWxsIGNhbnZhcykKCiMjIyBTdHlsZSBDaGF0Ym94IOKAlCBkb2NrZWQgb24gdGhlIExFRlQgc2lkZQpMaXZlIHN0eWxlL2NvbG91ciBlZGl0b3IgZm9yIHRoZSBhcHAgaXRzZWxmLCBpbiByZWFsIHRpbWUgYXMgeW91IHR5cGUsCm5vIHJlc3RhcnQuICoqQ29sb3VycyBvbmx5IOKAlCBpdCBjYW5ub3QgYWRkIGltYWdlcy4qKgpFdmVyeSBwYXJ0IGdldHMgaXRzIG93biBzZXBhcmF0ZSBjb2xvdXIgY2hhbmdlLCBuZXZlciBvbmUgY29sb3VyIGZvciBldmVyeXRoaW5nOgpiYWNrZ3JvdW5kLCB0ZXh0LCBidXR0b25zLCBwYW5lbHMsIGJvcmRlcnMsIG1peGVyLCBzY2VuZXMsIHNvdXJjZXMsCmNvbnRyb2xzLCB0cmFuc2l0aW9ucywgdGl0bGVzLgotIGBtYWtlIHRoZSBidXR0b25zIHJlZGAgwrcgYHRleHQgd2hpdGVgIMK3IGBiYWNrZ3JvdW5kIGRhcmsgZ3JleWAgwrcgYG1peGVyIGdyZWVuYCDCtyBgc2NlbmVzIGJsdWVgCi0gYHJlc2V0IHN0eWxlYCBwdXRzIGV2ZXJ5dGhpbmcgYmFjayB0byBub3JtYWwuCi0gVGhlIGNhbnZhcyB2aWRlbyBpdHNlbGYgY2FuJ3QgYmUgcmVjb2xvdXJlZCBoZXJlIOKAlCBmb3IgdGhlIHN0cmVhbQogIGJhY2tncm91bmQgdXNlIHRoZSBDYW52YXMgQ2hhdGJveCBvbiB0aGUgcmlnaHQuCgpGaXJzdCBydW46IFN0eWxlIENoYXRib3ggb24gdGhlIGxlZnQsIENhbnZhcyBDaGF0Ym94IG9uIHRoZSByaWdodC4KRHJhZyB0aGVtIGFueXdoZXJlIHlvdSBsaWtlIOKAlCBPQlMgcmVtZW1iZXJzIHRoZSBsYXlvdXQuIElmIGEgZG9jayBpcwpoaWRkZW4sIHR1cm4gaXQgYmFjayBvbiBpbiBWaWV3ID4gRG9ja3MuCgojIyBLZXB0CgotIEhhcmR3YXJlIGVuY29kZXJzIG9ubHk6IE5WRU5DIChOVklESUEpLCBRdWlja1N5bmMgLyBRU1YgKEludGVsKSwgQU1GIChBTUQpLgogIEZpcnN0LXJ1biBkZWZhdWx0IGVuY29kZXIgaXMgUXVpY2tTeW5jIGlmIG5vIE5WSURJQSBjYXJkIGlzIGZvdW5kLgotIFN0cmVhbWluZzogQ3VzdG9tIFJUTVAgKG9icy1vdXRwdXRzICsgb2JzLWZmbXBlZyArIHJ0bXAtc2VydmljZXMpLCBOREkgaW4uCi0gTWljIGFzIGEgU09VUkNFOiBBdWRpbyBJbnB1dCBDYXB0dXJlICh3aW4td2FzYXBpKSwgZWFjaCBtaWMgaXRzIG93bgogIG1peGVyIHNsaWRlciDigJQgdHVybiBvbmUgdXAgd2l0aG91dCB0b3VjaGluZyB0aGUgb3RoZXJzLgotIENhbnZhczogRGlzcGxheSwgV2luZG93LCBHYW1lIENhcHR1cmUsIFdlYmNhbSwgSW1hZ2UsIEJyb3dzZXIgU291cmNlCiAgKDcyMHAgZGVmYXVsdCksIFRleHQgKEZyZWVUeXBlICsgR0RJKSwgTWVkaWEgU291cmNlLCBDb2xvdXIsIE1pYy9EZXNrdG9wIGF1ZGlvLgotIEZpbHRlcnMga2VwdDogTWFzaywgU2Nyb2xsLCBTaGFycG5lc3MsIEdQVSBEZWxheSwgQXN5bmMgRGVsYXksIENocm9tYSBLZXksCiAgQ29sb3VyIENvcnJlY3Rpb24vR3JhZGUvS2V5LCBMdW1hIEtleSwgQ3JvcCwgU2NhbGUsIEVRLCBOb2lzZSBHYXRlLAogIEludmVydCBQb2xhcml0eSwgSERSIFRvbmVtYXAgKyBTRFItb24tSERSIChTRFIgb3V0cHV0IGxpa2UgUFM1LCB0b25lbWFwCiAga2VwdCBzbyBTRFIgc2hvd3MgdGhlIGZ1bGwgcmFuZ2UsIG5vdCBjbGlwcGVkKS4KLSBWU1QgcGx1Z2lucyBrZXB0IChvYnMtdnN0KSDigJQgVlNUcyBkbyB0aGUgYXVkaW8gY2xlYW51cC9maWx0ZXJpbmcuCi0gTHVhIHNjcmlwdGluZyBrZXB0LCBXZWJTb2NrZXQgYXMtaXMgKHN0b2NrIE9OKSwgU3R1ZGlvIE1vZGUsIFByZXZpZXcsCiAgR2FtZSBDYXB0dXJlIGhvb2ssIG11bHRpLXRyYWNrIGF1ZGlvLCBtZWRpYSBwcmVsb2FkIGFsbCBsZWZ0IGFzIHN0b2NrLgotIFZpcnR1YWwgQ2FtZXJhOiA3MjBwICsgMzBmcHMgKGZvbGxvd3MgdGhlIDcyMHAzMCBmaXJzdC1ydW4gY2FudmFzKS4KLSBEb3duc2NhbGU6IGZpcnN0LXJ1biBjYW52YXMgY2FwcGVkIGF0IDEyODB4NzIwICgxNjo5IGFuZCA5OjE2IGNob2ljZXMKICBzdGlsbCBpbiBTZXR0aW5ncyA+IFZpZGVvKS4gRG93bnNjYWxlIGdyZXlzIG91dCB3aGVuIGNhbnZhcyA9PSBvdXRwdXQuCiAgVW5kZXIgRG93bnNjYWxlLCBhICJGcmFtZXMgdG8gc2VuZCBhdCBvbmNlIiBwaWNrZXIgKDHigJM1LCBkZWZhdWx0IDIpCiAgZHJpdmVzIHRoZSBoYXJkd2FyZSBlbmNvZGVyIEItZnJhbWUgY291bnQgaW4gU2ltcGxlIG91dHB1dCBtb2RlLgotIFVwZGF0ZSBjaGVja2VyLCBsaWdodGVyIHdheTogY2hlY2tzIG9ubHkgb25jZSBvbiBzdGFydHVwLCBuZXZlciB3aGlsZQogIGxpdmUuIE5vIHRlbGVtZXRyeSBvciBjcmFzaCByZXBvcnRpbmcgZXhpc3RzIGluIHVwc3RyZWFtIE9CUyB0byByZW1vdmUuCgojIyBSZW1vdmVkCgotIG9icy14MjY0IOKAlCBzb2Z0d2FyZSB4MjY0IGVuY29kZXIsIGJpZ2dlc3QgQ1BVIGhvZwotIG9icy1mZm1wZWctb3BlbmgyNjQuYyDigJQgc29mdHdhcmUgT3BlbkgyNjQgZW5jb2RlcgotIE5vaXNlIFN1cHByZXNzaW9uIChSTk5vaXNlICsgU3BlZXhEU1ApIOKAlCB1c2UgYSBWU1QgaW5zdGVhZAotIEJ1aWx0LWluIGF1ZGlvIGZpbHRlcnMgKENvbXByZXNzb3IgLyBMaW1pdGVyIC8gRXhwYW5kZXIgLyBHYWluKSDigJQgdXNlIGEgVlNUIGluc3RlYWQKLSBSZXBsYXkgQnVmZmVyIOKAlCBidXR0b24gaGlkZGVuLCBzdGFydGluZyBpdCBkb2VzIG5vdGhpbmcgKG5vIHNlY29uZCBlbmNvZGUpCi0gVkxDIFZpZGVvIFNvdXJjZSwgRGVja0xpbmsgKCsgY2FwdGlvbnMvb3V0cHV0IFVJKSwgQUpBLCBXZWJSVEMsIExpbnV4L21hYyBjYXB0dXJlLCBvYnMtbGliZmRrCi0gUHl0aG9uIHNjcmlwdGluZyAoTHVhIHN0YXlzKQoKIyMgRkZtcGVnIOKAlCBob25lc3Qgbm90ZQoKb2JzLWZmbXBlZyBTVEFZUy4gSXQgaXMgdGhlIGNvcmUgb2YgUlRNUCBzdHJlYW1pbmcsIHRoZSBNZWRpYSBTb3VyY2UsCmFuZCB0aGUgTlZFTkMvQU1GL1FTViB0ZXh0dXJlIGVuY29kZXJzIGluIE9CUyDigJQgcmVtb3ZpbmcgaXQgd291bGQgYnJlYWsKc3RyZWFtaW5nIGl0c2VsZi4gT25seSB0aGUgT3BlbkgyNjQgc29mdHdhcmUgZW5jb2RlciBmaWxlIHdhcyByZW1vdmVkLgoKIyMgTlZJRElBIC8gSW50ZWwgLyBBTUQgZWZmZWN0cyDigJQgaG9uZXN0IG5vdGUKClRoZSBOVklESUEgQXVkaW8vVmlkZW8gRWZmZWN0cyBTREsgb3B0aW9ucyBhcmUgT0ZGIGJ5IGRlZmF1bHQgaW4gdGhpcwpidWlsZCwgc28gbm90aGluZyBsb2FkcyB1bmxlc3MgZW5hYmxlZC4gVGhlcmUgaXMgbm8gSW50ZWwgb3IgQU1ECkFJLWVmZmVjdHMgcGx1Z2luIGluIHN0b2NrIE9CUyB0byB0b2dnbGUg4oCUIFFTVi9BTUYgYXJlIGVuY29kZXJzLCBub3QKZWZmZWN0cyDigJQgc28gdGhlIHBlci12ZW5kb3IgU2V0dGluZ3MgdG9nZ2xlIGluIHRoZSBzcGVjIGlzIGltcGxlbWVudGVkCmFzIGJ1aWxkLXRpbWUgT0ZGIGZvciBOVklESUEsIGFuZCB0aGVyZSBpcyBub3RoaW5nIHRvIGxvYWQgZm9yIEludGVsL0FNRC4KCiMjIEhvdyB0aGUgYnVpbGQgd29ya3MKCmAuZ2l0aHViL3dvcmtmbG93cy9idWlsZC1vYnMtcHM1LWxpdGUueW1sYCBjbG9uZXMgdXBzdHJlYW0gT0JTIDMzLjAuMywKcnVucyBgc3RyaXAtcHM1LWxpdGUucHlgIG9uIGl0IChmYWlscyBsb3VkbHkgaWYgYW55IHN0ZXAgZmFpbHMsIHZlcmlmaWVzCmV4YWN0bHkgMTkgcGx1Z2lucyByZW1haW4pLCB0aGVuIHJ1bnMgdXBzdHJlYW0ncyBvd24KYC5naXRodWIvc2NyaXB0cy9CdWlsZC1XaW5kb3dzLnBzMWAsIHZlcmlmaWVzIG5vIHgyNjQgLyBWTEMgLyBEZWNrTGluawpmaWxlcyBhcmUgaW4gdGhlIGluc3RhbGwgZm9sZGVyIGFuZCB0aGF0IGBjYW52YXMtY2hhdGJveC5kbGxgIGlzIGJ1aWx0LAphbmQgdXBsb2FkcyBgT0JTLVBTNS1MaXRlLTMzLjAuMy56aXBgICsgYG9iczY0LmV4ZWAuCgojIyBIb25lc3QgbGltaXRzCgotIE5vIHNvZnR3YXJlIGVuY29kZXIgbGVmdC4gSWYgYSBQQyBoYXMgbm8gaGFyZHdhcmUgZW5jb2RlciAobm8gTlZFTkMsCiAgbm8gSW50ZWwgUXVpY2tTeW5jLCBubyBBTUQgQU1GKSwgdGhpcyBidWlsZCBjYW5ub3QgZW5jb2RlLiBJbnRlbAogIGdyYXBoaWNzIFBDcyBzaG91bGQgaGF2ZSBRdWlja1N5bmMg4oCUIHBpY2sgRW5jb2RlcjogUXVpY2tTeW5jIEguMjY0LgotIFRoZSAiRnJhbWVzIHRvIHNlbmQgYXQgb25jZSIgcGlja2VyIGFwcGxpZXMgaW4gU2ltcGxlIG91dHB1dCBtb2RlCiAgKHRoZSBkZWZhdWx0KS4gSW4gQWR2YW5jZWQgb3V0cHV0IG1vZGUsIHNldCBCLWZyYW1lcyBpbiB0aGUgZW5jb2RlcgogIHNldHRpbmdzIHlvdXJzZWxmLgotIFZpcnR1YWwgQ2FtZXJhIHN0aWxsIG5lZWRzIGl0cyBzZXBhcmF0ZSBhZG1pbiBkcml2ZXIgaW5zdGFsbCBmcm9tCiAgd2luLWRzaG93L3ZpcnR1YWxjYW0tbW9kdWxlIOKAlCBpdCBkb2VzIG5vdCBhcHBlYXIgYXMgYSB3ZWJjYW0gZnJvbSBhCiAgcG9ydGFibGUgZXhlIGFsb25lLgotIFRoZSA1MCUgUEMgY2FwIGlzIGltcGxlbWVudGVkIGFzOiBoYXJkd2FyZS1vbmx5IGVuY29kaW5nLCA3MjBwCiAgZmlyc3QtcnVuIGNhbnZhcywgYXV0byBkb3duc2NhbGUsIGxpZ2h0IGRlZmF1bHRzLCBhbmQgbm8gYmFja2dyb3VuZAogIHdvcmsgd2hpbGUgbGl2ZS4gSXQgaXMgbm90IGEgbGl2ZSBDUFUgbWV0ZXIg4oCUIHNpcidzIGxpdmUgV2luZG93cyBydW4KICBpcyB0aGUgZmluYWwgY2hlY2sgdGhhdCBpdCBzdGF5cyBhcm91bmQgNTAlIG9uIGhpcyBQQy4KLSBUaGUgU3R5bGUgQ2hhdGJveCBjb2xvdXJzIHRoZSBhcHAgVUkgb25seSwgYW5kIG9ubHkgZm9yIHRoZSBzZXNzaW9uCiAgKHRoZXkgcmVzZXQgd2hlbiBPQlMgcmVzdGFydHMpLiBUaGUgQ2FudmFzIENoYXRib3ggY2hhbmdlcyB0aGUgc2NlbmUsCiAgd2hpY2ggaXMgc2F2ZWQgd2l0aCB0aGUgc2NlbmUgY29sbGVjdGlvbiBsaWtlIGFueSBvdGhlciBlZGl0Lgo=
+# OBS PS5 Lite 33.0.3
+
+Streaming software more powerful than PS5, still light on the PC — 50% PC budget.
+
+Base: obsproject/obs-studio, tag 33.0.3, commit `f2aa9ce69caa7239ef26660b5889de4f53d9880e`.
+License: GPL-2.0, see the upstream COPYING.
+
+## What it is
+
+OBS Studio 33.0.3 stripped to the PS5-lite spec sir locked one by one (23 decisions).
+Hardware encoding only, no software encoders, no heavy extras — but with more
+power than PS5: multiple scenes, multiple mics as separate sources, browser
+sources, NDI, Lua scripting, multi-track audio, custom transitions, virtual
+camera, Studio Mode, and two in-app chatboxes.
+
+## The two chatboxes (both in the app, both local, no internet, no AI service)
+
+### Canvas Chatbox — docked BESIDE the canvas, on the RIGHT
+Type plain words and it does it on the canvas. Never on top of the canvas,
+never inside the scene.
+- `add my webcam bottom right` / `add game` / `add display` / `add browser https://…` / `add mic` / `add text hello` / `add image "C:\path\pic.png"`
+- `make the game bigger` / `resize the image to 50%`
+- `move the webcam to top left`
+- `remove the text`
+- `set background to black`
+- `use this image as background` (stretches an image to the full canvas)
+
+### Style Chatbox — docked on the LEFT side
+Live style/colour editor for the app itself, in real time as you type,
+no restart. **Colours only — it cannot add images.**
+Every part gets its own separate colour change, never one colour for everything:
+background, text, buttons, panels, borders, mixer, scenes, sources,
+controls, transitions, titles.
+- `make the buttons red` · `text white` · `background dark grey` · `mixer green` · `scenes blue`
+- `reset style` puts everything back to normal.
+- The canvas video itself can't be recoloured here — for the stream
+  background use the Canvas Chatbox on the right.
+
+First run: Style Chatbox on the left, Canvas Chatbox on the right.
+Drag them anywhere you like — OBS remembers the layout. If a dock is
+hidden, turn it back on in View > Docks.
+
+## Kept
+
+- Hardware encoders only: NVENC (NVIDIA), QuickSync / QSV (Intel), AMF (AMD).
+  First-run default encoder is QuickSync if no NVIDIA card is found.
+- Streaming: Custom RTMP (obs-outputs + obs-ffmpeg + rtmp-services), NDI in.
+- Mic as a SOURCE: Audio Input Capture (win-wasapi), each mic its own
+  mixer slider — turn one up without touching the others.
+- Canvas: Display, Window, Game Capture, Webcam, Image, Browser Source
+  (720p default), Text (FreeType + GDI), Media Source, Colour, Mic/Desktop audio.
+- Filters kept: Mask, Scroll, Sharpness, GPU Delay, Async Delay, Chroma Key,
+  Colour Correction/Grade/Key, Luma Key, Crop, Scale, EQ, Noise Gate,
+  Invert Polarity, HDR Tonemap + SDR-on-HDR (SDR output like PS5, tonemap
+  kept so SDR shows the full range, not clipped).
+- VST plugins kept (obs-vst) — VSTs do the audio cleanup/filtering.
+- Lua scripting kept, WebSocket as-is (stock ON), Studio Mode, Preview,
+  Game Capture hook, multi-track audio, media preload all left as stock.
+- Virtual Camera: 720p + 30fps (follows the 720p30 first-run canvas).
+- Downscale: first-run canvas capped at 1280x720 (16:9 and 9:16 choices
+  still in Settings > Video). Downscale greys out when canvas == output.
+  Under Downscale, a "Frames to send at once" picker (1–5, default 2)
+  drives the hardware encoder B-frame count in Simple output mode.
+- Update checker, lighter way: checks only once on startup, never while
+  live. No telemetry or crash reporting exists in upstream OBS to remove.
+
+## Removed
+
+- obs-x264 — software x264 encoder, biggest CPU hog
+- obs-ffmpeg-openh264.c — software OpenH264 encoder
+- Noise Suppression (RNNoise + SpeexDSP) — use a VST instead
+- Built-in audio filters (Compressor / Limiter / Expander / Gain) — use a VST instead
+- Replay Buffer — button hidden, starting it does nothing (no second encode)
+- VLC Video Source, DeckLink (+ captions/output UI), AJA, WebRTC, Linux/mac capture, obs-libfdk
+- Python scripting (Lua stays)
+
+## FFmpeg — honest note
+
+obs-ffmpeg STAYS. It is the core of RTMP streaming, the Media Source,
+and the NVENC/AMF/QSV texture encoders in OBS — removing it would break
+streaming itself. Only the OpenH264 software encoder file was removed.
+
+## NVIDIA / Intel / AMD effects — honest note
+
+The NVIDIA Audio/Video Effects SDK options are OFF by default in this
+build, so nothing loads unless enabled. There is no Intel or AMD
+AI-effects plugin in stock OBS to toggle — QSV/AMF are encoders, not
+effects — so the per-vendor Settings toggle in the spec is implemented
+as build-time OFF for NVIDIA, and there is nothing to load for Intel/AMD.
+
+## How the build works
+
+`.github/workflows/build-obs-ps5-lite.yml` clones upstream OBS 33.0.3,
+runs `strip-ps5-lite.py` on it (fails loudly if any step fails, verifies
+exactly 19 plugins remain), then runs upstream's own
+`.github/scripts/Build-Windows.ps1`, verifies no x264 / VLC / DeckLink
+files are in the install folder and that `canvas-chatbox.dll` is built,
+and uploads `OBS-PS5-Lite-33.0.3.zip` + `obs64.exe`.
+
+## Honest limits
+
+- No software encoder left. If a PC has no hardware encoder (no NVENC,
+  no Intel QuickSync, no AMD AMF), this build cannot encode. Intel
+  graphics PCs should have QuickSync — pick Encoder: QuickSync H.264.
+- The "Frames to send at once" picker applies in Simple output mode
+  (the default). In Advanced output mode, set B-frames in the encoder
+  settings yourself.
+- Virtual Camera still needs its separate admin driver install from
+  win-dshow/virtualcam-module — it does not appear as a webcam from a
+  portable exe alone.
+- The 50% PC cap is implemented as: hardware-only encoding, 720p
+  first-run canvas, auto downscale, light defaults, and no background
+  work while live. It is not a live CPU meter — sir's live Windows run
+  is the final check that it stays around 50% on his PC.
+- The Style Chatbox colours the app UI only, and only for the session
+  (they reset when OBS restarts). The Canvas Chatbox changes the scene,
+  which is saved with the scene collection like any other edit.
