@@ -198,7 +198,21 @@ jobs:
           if (-not (Test-Path "$core/canvas-chatbox/data/locale/en-US.ini")) { throw "Lite check FAILED: canvas-chatbox locale data missing at core/canvas-chatbox/data/locale/en-US.ini" }
           if (-not (Test-Path "$core/obs-vst/obs-vst.dll")) { throw "Lite check FAILED: obs-vst.dll is NOT in the build" }
           if (-not (Test-Path "$core/obs-nvenc/obs-nvenc.dll")) { Write-Host "NOTE: obs-nvenc.dll not found by that name - checking encoder plugins"; Get-ChildItem build_x64/install -Recurse -Filter "*nvenc*" }
-          Get-ChildItem build_x64/install -Recurse -Filter "*x264*" | ForEach-Object { throw "Lite check FAILED: x264 file in build: $($_.FullName)" }
+          # PS5 Lite run #6: obs64.exe would not start on sir's PC -
+          # avcodec-62.dll links libx264-164.dll at load time, but
+          # cmake --install never copies it into install/bin/64bit
+          # (official packaging does it via CPack, which we do not run).
+          # Restore it from the obs-deps tree the build downloaded.
+          $x264dll = Get-ChildItem .deps -Recurse -Filter "libx264-164.dll" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $x264dll) { $x264dll = Get-ChildItem build_x64 -Recurse -Filter "libx264-164.dll" -ErrorAction SilentlyContinue | Select-Object -First 1 }
+          if (-not $x264dll) { throw "Lite check FAILED: libx264-164.dll not found under .deps or build_x64 - avcodec-62.dll needs it to load" }
+          Copy-Item $x264dll.FullName "build_x64/install/bin/64bit/libx264-164.dll" -Force
+          Write-Host "Restored libx264-164.dll from $($x264dll.FullName)"
+          if (-not (Test-Path "build_x64/install/bin/64bit/libx264-164.dll")) { throw "Lite check FAILED: libx264-164.dll is NOT in the build - avcodec-62.dll needs it, obs64.exe will not start" }
+          # NOTE: the scan below is *obs-x264* (the removed plugin), NOT
+          # *x264* - libx264-164.dll is a runtime library avcodec needs
+          # and must be present (see above); only the plugin is banned.
+          Get-ChildItem build_x64/install -Recurse -Filter "*obs-x264*" | ForEach-Object { throw "Lite check FAILED: obs-x264 plugin file in build: $($_.FullName)" }
           Get-ChildItem build_x64/install -Recurse -Filter "*vlc*" | ForEach-Object { throw "Lite check FAILED: vlc file in build: $($_.FullName)" }
           Get-ChildItem build_x64/install -Recurse -Filter "*decklink*" | ForEach-Object { throw "Lite check FAILED: decklink file in build: $($_.FullName)" }
           Get-ChildItem build_x64/install -Recurse -Filter "*noise-suppress*" | ForEach-Object { throw "Lite check FAILED: noise-suppress file in build: $($_.FullName)" }
@@ -228,12 +242,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $tag = "v33.0.3-ps5-lite"
-          gh release view $tag 2>$null | Out-Null
+          # PS5 Lite run #6: this step runs in upstream/, so plain `gh`
+          # commands default to the obsproject/obs-studio repo and
+          # `gh release create` failed HTTP 403 there. Target our repo
+          # explicitly on every gh call.
+          gh release view $tag --repo streamguy100/OBS-Lite-v2 2>$null | Out-Null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag OBS-PS5-Lite-33.0.3.zip --title "OBS PS5 Lite 33.0.3" --notes "OBS Studio 33.0.3 stripped to the PS5-lite spec: hardware encoders only, 50% PC budget, Canvas Chatbox (right) + Style Chatbox (left) in-app. Portable zip - run obs64.exe inside." --prerelease
+            gh release create $tag OBS-PS5-Lite-33.0.3.zip --repo streamguy100/OBS-Lite-v2 --title "OBS PS5 Lite 33.0.3" --notes "OBS Studio 33.0.3 stripped to the PS5-lite spec: hardware encoders only, 50% PC budget, Canvas Chatbox (right) + Style Chatbox (left) in-app. Portable zip - run obs64.exe inside." --prerelease
             if ($LASTEXITCODE -ne 0) { throw "gh release create FAILED" }
           } else {
-            gh release upload $tag OBS-PS5-Lite-33.0.3.zip --clobber
+            gh release upload $tag OBS-PS5-Lite-33.0.3.zip --repo streamguy100/OBS-Lite-v2 --clobber
             if ($LASTEXITCODE -ne 0) { throw "gh release upload FAILED" }
           }
           Write-Host "Release published: https://github.com/streamguy100/OBS-Lite-v2/releases/tag/$tag"
