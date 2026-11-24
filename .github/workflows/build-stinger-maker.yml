@@ -1,0 +1,224 @@
+name: Build Stinger Maker plugin (Windows)
+
+on:
+  push:
+    branches:
+      - stinger-maker
+  workflow_dispatch:
+
+concurrency:
+  group: build-stinger-maker-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-windows:
+    name: "Build Stinger Maker plugin (OBS 33.0.3, Windows x64)"
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 300
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Clone upstream OBS Studio 33.0.3
+        shell: pwsh
+        run: |
+          git clone --depth 1 --branch 33.0.3 https://github.com/obsproject/obs-studio.git upstream
+          cd upstream
+          git rev-parse HEAD
+          if ((git rev-parse HEAD) -ne "f2aa9ce69caa7239ef26660b5889de4f53d9880e") { throw "Upstream HEAD is not f2aa9ce - wrong OBS version, stopping" }
+          git submodule update --init --recursive plugins/obs-browser plugins/obs-websocket deps/libdshowcapture/src
+          if ($LASTEXITCODE -ne 0) { throw "Submodule init failed with exit code $LASTEXITCODE" }
+          if (-not (Test-Path plugins/obs-browser/CMakeLists.txt)) { throw "obs-browser submodule missing" }
+          if (-not (Test-Path plugins/obs-websocket/CMakeLists.txt)) { throw "obs-websocket submodule missing" }
+
+      - name: Add Stinger Maker plugin to upstream
+        shell: pwsh
+        run: |
+          if (-not (Test-Path plugin/stinger-maker.cpp)) { throw "Plugin source missing: plugin/stinger-maker.cpp not in repo" }
+          if (-not (Test-Path plugin/data/stinger_maker.effect)) { throw "Plugin effect missing: plugin/data/stinger_maker.effect not in repo" }
+          if (-not (Test-Path plugin/data/locale/en-US.ini)) { throw "Plugin locale missing: plugin/data/locale/en-US.ini not in repo" }
+          Copy-Item -Path plugin -Destination upstream/plugins/stinger-maker -Recurse -Force
+          if (-not (Test-Path upstream/plugins/stinger-maker/CMakeLists.txt)) { throw "Plugin CMakeLists.txt did not copy into upstream/plugins/stinger-maker" }
+          $cm = Get-Content upstream/plugins/CMakeLists.txt -Raw
+          if ($cm -match "stinger-maker") { throw "stinger-maker already in upstream plugins/CMakeLists.txt - unexpected" }
+          $cm = $cm -replace "(add_core_module\(obs-transitions\))", "`$1`nadd_core_module(stinger-maker)"
+          Set-Content upstream/plugins/CMakeLists.txt $cm -NoNewline
+          if (-not ((Get-Content upstream/plugins/CMakeLists.txt -Raw) -match "add_core_module\(stinger-maker\)")) { throw "Failed to register stinger-maker in upstream plugins/CMakeLists.txt" }
+          Write-Host "Stinger Maker plugin registered in upstream build"
+
+      - name: Fix ATL headers (copy, no installer)
+        shell: pwsh
+        run: |
+          # Run #3 (45301275802, commit 66a374e) failed HERE in 5s: the
+          # vs_installer.exe modify --quiet --norestart --wait step itself
+          # failed on the GitHub-hosted runner (installer lock / exit code),
+          # job died in 27-29s and never reached the build. Do NOT retry
+          # that installer command as the primary fix.
+          # Robust fix, no installer needed: ATL headers ARE present under
+          # MSVC 14.52.37025\atlmfc\include (proven in run #2 log), while
+          # the x64 build uses MSVC 14.44.35207, which lacks them. Copy the
+          # whole atlmfc folder (include + lib) from the toolset that HAS
+          # ATL into every other toolset that lacks it, then point
+          # INCLUDE/LIB at the source so cl.exe finds atlbase.h regardless.
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (-not (Test-Path $vswhere)) { throw "ATL copy FAILED: vswhere.exe not found at $vswhere" }
+          $vsPath = (& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath | Select-Object -First 1).Trim()
+          if (-not $vsPath -or -not (Test-Path $vsPath)) { throw "ATL copy FAILED: no Visual Studio installation found via vswhere" }
+          Write-Host "VS install at: $vsPath"
+          $msvcRoot = Join-Path $vsPath "VC\Tools\MSVC"
+          if (-not (Test-Path $msvcRoot)) { throw "ATL copy FAILED: MSVC toolset root not found at $msvcRoot" }
+          $toolsets = Get-ChildItem -Path $msvcRoot -Directory | Sort-Object Name
+          if (-not $toolsets) { throw "ATL copy FAILED: no MSVC toolset folders under $msvcRoot" }
+          Write-Host "MSVC toolsets present: $($toolsets.Name -join ', ')"
+          $required = @("atlbase.h", "atlcomcli.h", "atlstr.h")
+          function Find-AtlSource {
+            param($sets)
+            foreach ($t in $sets) {
+              $ok = $true
+              foreach ($h in $required) {
+                if (-not (Test-Path (Join-Path $t.FullName "atlmfc\include\$h"))) { $ok = $false; break }
+              }
+              if ($ok) { return $t }
+            }
+            return $null
+          }
+          $source = Find-AtlSource $toolsets
+          if (-not $source) {
+            Write-Host "No toolset has ATL headers - trying fallback installer ONCE with --passive (not --quiet --wait) ..."
+            $installer = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vs_installer.exe"
+            if (-not (Test-Path $installer)) { throw "ATL copy FAILED: no MSVC toolset on this runner has atlmfc\include\atlbase.h - checked toolsets: $($toolsets.Name -join ', ') - and vs_installer.exe not found at $installer, so no fallback is possible" }
+            & $installer modify --installPath "$vsPath" --add Microsoft.VisualStudio.Component.VC.ATL --add Microsoft.VisualStudio.Component.VC.ATLMFC --passive --norestart
+            $installerCode = $LASTEXITCODE
+            Write-Host "vs_installer.exe --passive exit code: $installerCode"
+            if ($installerCode -notin 0, 3010) { throw "ATL fallback FAILED: vs_installer.exe --passive exited with code $installerCode - installer modify failed on GitHub-hosted runner, and no ATL copy source exists" }
+            $source = Find-AtlSource $toolsets
+            if (-not $source) { throw "ATL copy FAILED: installer fallback reported exit code $installerCode but still no MSVC toolset has atlmfc\include\atlbase.h - checked toolsets: $($toolsets.Name -join ', ')" }
+          }
+          Write-Host "ATL copy source toolset: $($source.Name) at $($source.FullName)"
+          $srcAtl = Join-Path $source.FullName "atlmfc"
+          $srcInclude = Join-Path $srcAtl "include"
+          $srcLib = Join-Path $srcAtl "lib"
+          if (-not (Test-Path $srcInclude)) { throw "ATL copy FAILED: source include folder missing at $srcInclude" }
+          foreach ($toolset in $toolsets) {
+            if ($toolset.FullName -eq $source.FullName) { continue }
+            $destAtl = Join-Path $toolset.FullName "atlmfc"
+            $hasAtl = $true
+            foreach ($h in $required) {
+              if (-not (Test-Path (Join-Path $destAtl "include\$h"))) { $hasAtl = $false; break }
+            }
+            if ($hasAtl) { Write-Host "ATL already present ($($toolset.Name)), skipping copy"; continue }
+            Write-Host "Copying atlmfc from $($source.Name) to $($toolset.Name) ..."
+            Copy-Item -Path $srcAtl -Destination $destAtl -Recurse -Force
+            foreach ($h in $required) {
+              $p = Join-Path $destAtl "include\$h"
+              if (-not (Test-Path $p)) { throw "ATL copy FAILED: $h still missing after copy for toolset $($toolset.Name) at $p" }
+            }
+            Write-Host "ATL copied ($($toolset.Name)): $destAtl"
+          }
+          # Point the compiler at the ATL source even if a toolset layout
+          # differs, and persist it for the following Build step via GITHUB_ENV.
+          $atlLibX64 = Join-Path $srcLib "x64"
+          if (-not (Test-Path $atlLibX64)) { $atlLibX64 = $srcLib }
+          $env:INCLUDE = "$srcInclude;$env:INCLUDE"
+          $env:LIB = "$atlLibX64;$env:LIB"
+          Add-Content -Path $env:GITHUB_ENV -Value "INCLUDE=$env:INCLUDE"
+          Add-Content -Path $env:GITHUB_ENV -Value "LIB=$env:LIB"
+          Write-Host "INCLUDE now includes: $srcInclude"
+          Write-Host "LIB now includes: $atlLibX64"
+          # Verify ATL headers under EVERY toolset folder, not just the first hit.
+          foreach ($toolset in $toolsets) {
+            $includeDir = Join-Path $toolset.FullName "atlmfc\include"
+            foreach ($header in $required) {
+              $headerPath = Join-Path $includeDir $header
+              if (-not (Test-Path $headerPath)) { throw "ATL copy FAILED: $header missing for toolset $($toolset.Name) at $headerPath - x64 build would fail C1083 again" }
+              Write-Host "ATL verified ($($toolset.Name)): $headerPath"
+            }
+          }
+          # Explicit check for the toolset the x64 build uses.
+          $x64Toolset = Join-Path $msvcRoot "14.44.35207\atlmfc\include"
+          if (Test-Path (Join-Path $msvcRoot "14.44.35207")) {
+            foreach ($header in $required) {
+              $headerPath = Join-Path $x64Toolset $header
+              if (-not (Test-Path $headerPath)) { throw "ATL copy FAILED: $header missing under 14.44.35207 at $headerPath - this is the x64 build toolset" }
+            }
+          }
+          Write-Host "ATL verified for all toolsets, including 14.44.35207 (x64 build toolset), via copy - no installer needed"
+
+      - name: Configure OBS (plugin-only build)
+        shell: pwsh
+        run: |
+          cd upstream
+          $env:CI = "true"
+          cmake --preset windows-ci-x64
+          if ($LASTEXITCODE -ne 0) { throw "CMake configure FAILED with exit code $LASTEXITCODE" }
+          Write-Host "CMake configure OK"
+
+      - name: Build Stinger Maker plugin only
+        shell: pwsh
+        run: |
+          cd upstream
+          $env:CI = "true"
+          cmake --build --preset windows-x64 --config RelWithDebInfo --target stinger-maker --parallel
+          if ($LASTEXITCODE -ne 0) { throw "Build of stinger-maker target FAILED with exit code $LASTEXITCODE" }
+          $dll = Get-ChildItem -Path build_x64 -Recurse -Filter stinger-maker.dll -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $dll) { throw "stinger-maker.dll NOT found under build_x64 after build" }
+          Write-Host "Built DLL: $($dll.FullName) ($($dll.Length) bytes)"
+          if ($dll.Length -lt 50000) { throw "stinger-maker.dll suspiciously small: $($dll.Length) bytes" }
+
+      - name: Verify and package plugin
+        shell: pwsh
+        run: |
+          cd upstream
+          $dll = Get-ChildItem -Path build_x64 -Recurse -Filter stinger-maker.dll -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $dll) { throw "stinger-maker.dll NOT found for packaging" }
+          New-Item -ItemType Directory -Force -Path package/stinger-maker/data/locale | Out-Null
+          Copy-Item $dll.FullName package/stinger-maker/stinger-maker.dll
+          Copy-Item plugins/stinger-maker/data/stinger_maker.effect package/stinger-maker/data/stinger_maker.effect
+          Copy-Item plugins/stinger-maker/data/locale/en-US.ini package/stinger-maker/data/locale/en-US.ini
+          if (-not (Test-Path package/stinger-maker/stinger-maker.dll)) { throw "Package missing stinger-maker.dll" }
+          if (-not (Test-Path package/stinger-maker/data/stinger_maker.effect)) { throw "Package missing data/stinger_maker.effect" }
+          if (-not (Test-Path package/stinger-maker/data/locale/en-US.ini)) { throw "Package missing data/locale/en-US.ini" }
+          $hash = (Get-FileHash package/stinger-maker/stinger-maker.dll -Algorithm SHA256).Hash
+          Write-Host "stinger-maker.dll SHA-256: $hash"
+          Write-Host "stinger-maker.dll size: $((Get-Item package/stinger-maker/stinger-maker.dll).Length) bytes"
+          Compress-Archive -Path package/stinger-maker -DestinationPath stinger-maker.zip -Force
+          if (-not (Test-Path stinger-maker.zip)) { throw "stinger-maker.zip was not created" }
+          Write-Host "Package ready: stinger-maker.zip ($((Get-Item stinger-maker.zip).Length) bytes)"
+
+      - name: Upload artifact (zip)
+        uses: actions/upload-artifact@v4
+        with:
+          name: stinger-maker
+          path: upstream/stinger-maker.zip
+          if-no-files-found: error
+
+      - name: Publish release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Run from the repo root, NOT from upstream/ - run #6 of the
+          # PS5 Lite build failed here because gh defaulted to the
+          # upstream obsproject/obs-studio remote and got HTTP 403.
+          $tag = "v1.0.0-stinger-maker"
+          # Same pattern as the PS5 Lite run #8 release step, which
+          # worked: view piped to Out-Null, create WITH the file if
+          # the release does not exist yet, else upload --clobber.
+          gh release view $tag --repo streamguy100/OBS-Lite-v2 2>$null | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag upstream/stinger-maker.zip --repo streamguy100/OBS-Lite-v2 --title "Stinger Maker v1.0.0" --notes "Stinger Maker OBS plugin - drop the stinger-maker folder into OBS core/ . Works on OBS 30-33."
+            if ($LASTEXITCODE -ne 0) { throw "gh release create FAILED" }
+          } else {
+            gh release upload $tag upstream/stinger-maker.zip --repo streamguy100/OBS-Lite-v2 --clobber
+            if ($LASTEXITCODE -ne 0) { throw "gh release upload FAILED" }
+          }
+          Write-Host "Release published: https://github.com/streamguy100/OBS-Lite-v2/releases/tag/$tag"
