@@ -69,52 +69,103 @@ jobs:
           if ($plugins.Count -ne 19) { throw "Expected 19 plugin folders, got $($plugins.Count): $($plugins -join ', ')" }
           Write-Host "Strip verified: 19 plugin folders, Lua-only scripting, hardware encoders only, both chatboxes in"
 
-      - name: Install Visual Studio ATL component
+      - name: Fix ATL headers (copy, no installer)
         shell: pwsh
         run: |
-          # Run 45295726682 failed 8x C1083 atlbase.h / atlcomcli.h / atlstr.h in
-          # obs-virtualcam-module, obs-qsv11, frontend-tools. Root cause: the old
-          # step skipped the installer if atlbase.h was found ANYWHERE. It was
-          # found only under MSVC 14.52.37025 (nested x86 configure), while the
-          # main x64 build uses MSVC 19.44.35230.0 / cl.exe at
-          # VC\Tools\MSVC\14.44.35207\bin\HostX64\x64\cl.exe, which had NO ATL.
-          # Fix: NEVER skip. Always force-install ATL, then verify the headers
-          # under EVERY MSVC toolset folder present, especially 14.44.35207.
+          # Run #3 (45301275802, commit 66a374e) failed HERE in 5s: the
+          # vs_installer.exe modify --quiet --norestart --wait step itself
+          # failed on the GitHub-hosted runner (installer lock / exit code),
+          # job died in 27-29s and never reached the build. Do NOT retry
+          # that installer command as the primary fix.
+          # Robust fix, no installer needed: ATL headers ARE present under
+          # MSVC 14.52.37025\atlmfc\include (proven in run #2 log), while
+          # the x64 build uses MSVC 14.44.35207, which lacks them. Copy the
+          # whole atlmfc folder (include + lib) from the toolset that HAS
+          # ATL into every other toolset that lacks it, then point
+          # INCLUDE/LIB at the source so cl.exe finds atlbase.h regardless.
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-          if (-not (Test-Path $vswhere)) { throw "ATL install FAILED: vswhere.exe not found at $vswhere" }
+          if (-not (Test-Path $vswhere)) { throw "ATL copy FAILED: vswhere.exe not found at $vswhere" }
           $vsPath = (& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath | Select-Object -First 1).Trim()
-          if (-not $vsPath -or -not (Test-Path $vsPath)) { throw "ATL install FAILED: no Visual Studio installation found via vswhere" }
+          if (-not $vsPath -or -not (Test-Path $vsPath)) { throw "ATL copy FAILED: no Visual Studio installation found via vswhere" }
           Write-Host "VS install at: $vsPath"
           $msvcRoot = Join-Path $vsPath "VC\Tools\MSVC"
-          if (-not (Test-Path $msvcRoot)) { throw "ATL install FAILED: MSVC toolset root not found at $msvcRoot" }
+          if (-not (Test-Path $msvcRoot)) { throw "ATL copy FAILED: MSVC toolset root not found at $msvcRoot" }
           $toolsets = Get-ChildItem -Path $msvcRoot -Directory | Sort-Object Name
-          if (-not $toolsets) { throw "ATL install FAILED: no MSVC toolset folders under $msvcRoot" }
+          if (-not $toolsets) { throw "ATL copy FAILED: no MSVC toolset folders under $msvcRoot" }
           Write-Host "MSVC toolsets present: $($toolsets.Name -join ', ')"
-          $installer = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vs_installer.exe"
-          if (-not (Test-Path $installer)) { throw "ATL install FAILED: vs_installer.exe not found at $installer" }
-          Write-Host "Force-installing Microsoft.VisualStudio.Component.VC.ATL + Microsoft.VisualStudio.Component.VC.ATLMFC for ALL toolsets (no skip) ..."
-          & $installer modify --installPath "$vsPath" --add Microsoft.VisualStudio.Component.VC.ATL --add Microsoft.VisualStudio.Component.VC.ATLMFC --quiet --norestart --wait
-          if ($LASTEXITCODE -notin 0, 3010) { throw "ATL install FAILED: vs_installer.exe exited with code $LASTEXITCODE" }
-          Write-Host "vs_installer.exe exit code: $LASTEXITCODE"
-          # Verify ATL headers under EVERY toolset folder, not just the first hit.
-          # This is what the old step missed: 14.52 had ATL, 14.44 (the one the
-          # x64 build actually uses) did not.
           $required = @("atlbase.h", "atlcomcli.h", "atlstr.h")
+          function Find-AtlSource {
+            param($sets)
+            foreach ($t in $sets) {
+              $ok = $true
+              foreach ($h in $required) {
+                if (-not (Test-Path (Join-Path $t.FullName "atlmfc\include\$h"))) { $ok = $false; break }
+              }
+              if ($ok) { return $t }
+            }
+            return $null
+          }
+          $source = Find-AtlSource $toolsets
+          if (-not $source) {
+            Write-Host "No toolset has ATL headers - trying fallback installer ONCE with --passive (not --quiet --wait) ..."
+            $installer = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vs_installer.exe"
+            if (-not (Test-Path $installer)) { throw "ATL copy FAILED: no MSVC toolset on this runner has atlmfc\include\atlbase.h - checked toolsets: $($toolsets.Name -join ', ') - and vs_installer.exe not found at $installer, so no fallback is possible" }
+            & $installer modify --installPath "$vsPath" --add Microsoft.VisualStudio.Component.VC.ATL --add Microsoft.VisualStudio.Component.VC.ATLMFC --passive --norestart
+            $installerCode = $LASTEXITCODE
+            Write-Host "vs_installer.exe --passive exit code: $installerCode"
+            if ($installerCode -notin 0, 3010) { throw "ATL fallback FAILED: vs_installer.exe --passive exited with code $installerCode - installer modify failed on GitHub-hosted runner, and no ATL copy source exists" }
+            $source = Find-AtlSource $toolsets
+            if (-not $source) { throw "ATL copy FAILED: installer fallback reported exit code $installerCode but still no MSVC toolset has atlmfc\include\atlbase.h - checked toolsets: $($toolsets.Name -join ', ')" }
+          }
+          Write-Host "ATL copy source toolset: $($source.Name) at $($source.FullName)"
+          $srcAtl = Join-Path $source.FullName "atlmfc"
+          $srcInclude = Join-Path $srcAtl "include"
+          $srcLib = Join-Path $srcAtl "lib"
+          if (-not (Test-Path $srcInclude)) { throw "ATL copy FAILED: source include folder missing at $srcInclude" }
+          foreach ($toolset in $toolsets) {
+            if ($toolset.FullName -eq $source.FullName) { continue }
+            $destAtl = Join-Path $toolset.FullName "atlmfc"
+            $hasAtl = $true
+            foreach ($h in $required) {
+              if (-not (Test-Path (Join-Path $destAtl "include\$h"))) { $hasAtl = $false; break }
+            }
+            if ($hasAtl) { Write-Host "ATL already present ($($toolset.Name)), skipping copy"; continue }
+            Write-Host "Copying atlmfc from $($source.Name) to $($toolset.Name) ..."
+            Copy-Item -Path $srcAtl -Destination $destAtl -Recurse -Force
+            foreach ($h in $required) {
+              $p = Join-Path $destAtl "include\$h"
+              if (-not (Test-Path $p)) { throw "ATL copy FAILED: $h still missing after copy for toolset $($toolset.Name) at $p" }
+            }
+            Write-Host "ATL copied ($($toolset.Name)): $destAtl"
+          }
+          # Point the compiler at the ATL source even if a toolset layout
+          # differs, and persist it for the following Build step via GITHUB_ENV.
+          $atlLibX64 = Join-Path $srcLib "x64"
+          if (-not (Test-Path $atlLibX64)) { $atlLibX64 = $srcLib }
+          $env:INCLUDE = "$srcInclude;$env:INCLUDE"
+          $env:LIB = "$atlLibX64;$env:LIB"
+          Add-Content -Path $env:GITHUB_ENV -Value "INCLUDE=$env:INCLUDE"
+          Add-Content -Path $env:GITHUB_ENV -Value "LIB=$env:LIB"
+          Write-Host "INCLUDE now includes: $srcInclude"
+          Write-Host "LIB now includes: $atlLibX64"
+          # Verify ATL headers under EVERY toolset folder, not just the first hit.
           foreach ($toolset in $toolsets) {
             $includeDir = Join-Path $toolset.FullName "atlmfc\include"
             foreach ($header in $required) {
               $headerPath = Join-Path $includeDir $header
-              if (-not (Test-Path $headerPath)) { throw "ATL install FAILED: $header missing for toolset $($toolset.Name) at $headerPath - x64 build would fail C1083 again" }
+              if (-not (Test-Path $headerPath)) { throw "ATL copy FAILED: $header missing for toolset $($toolset.Name) at $headerPath - x64 build would fail C1083 again" }
               Write-Host "ATL verified ($($toolset.Name)): $headerPath"
             }
           }
-          # Explicit check for the toolset the x64 build used in run 45295726682.
+          # Explicit check for the toolset the x64 build uses.
           $x64Toolset = Join-Path $msvcRoot "14.44.35207\atlmfc\include"
-          foreach ($header in $required) {
-            $headerPath = Join-Path $x64Toolset $header
-            if (-not (Test-Path $headerPath)) { throw "ATL install FAILED: $header missing under 14.44.35207 at $headerPath - this is the x64 build toolset" }
+          if (Test-Path (Join-Path $msvcRoot "14.44.35207")) {
+            foreach ($header in $required) {
+              $headerPath = Join-Path $x64Toolset $header
+              if (-not (Test-Path $headerPath)) { throw "ATL copy FAILED: $header missing under 14.44.35207 at $headerPath - this is the x64 build toolset" }
+            }
           }
-          Write-Host "ATL verified for all toolsets, including 14.44.35207 (x64 build toolset)"
+          Write-Host "ATL verified for all toolsets, including 14.44.35207 (x64 build toolset), via copy - no installer needed"
 
       - name: Build OBS PS5 Lite
         shell: pwsh
