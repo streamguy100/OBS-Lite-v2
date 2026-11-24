@@ -72,32 +72,49 @@ jobs:
       - name: Install Visual Studio ATL component
         shell: pwsh
         run: |
+          # Run 45295726682 failed 8x C1083 atlbase.h / atlcomcli.h / atlstr.h in
+          # obs-virtualcam-module, obs-qsv11, frontend-tools. Root cause: the old
+          # step skipped the installer if atlbase.h was found ANYWHERE. It was
+          # found only under MSVC 14.52.37025 (nested x86 configure), while the
+          # main x64 build uses MSVC 19.44.35230.0 / cl.exe at
+          # VC\Tools\MSVC\14.44.35207\bin\HostX64\x64\cl.exe, which had NO ATL.
+          # Fix: NEVER skip. Always force-install ATL, then verify the headers
+          # under EVERY MSVC toolset folder present, especially 14.44.35207.
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           if (-not (Test-Path $vswhere)) { throw "ATL install FAILED: vswhere.exe not found at $vswhere" }
           $vsPath = (& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath | Select-Object -First 1).Trim()
           if (-not $vsPath -or -not (Test-Path $vsPath)) { throw "ATL install FAILED: no Visual Studio installation found via vswhere" }
           Write-Host "VS install at: $vsPath"
           $msvcRoot = Join-Path $vsPath "VC\Tools\MSVC"
-          $atlFound = Get-ChildItem -Path $msvcRoot -Recurse -Filter "atlbase.h" -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($atlFound) {
-            Write-Host "ATL already present: $($atlFound.FullName) - skipping VS Installer"
-          } else {
-            $installer = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vs_installer.exe"
-            if (-not (Test-Path $installer)) { throw "ATL install FAILED: vs_installer.exe not found at $installer" }
-            Write-Host "Installing Microsoft.VisualStudio.Component.VC.ATL + Microsoft.VisualStudio.Component.VC.ATLMFC ..."
-            & $installer modify --installPath "$vsPath" --add Microsoft.VisualStudio.Component.VC.ATL --add Microsoft.VisualStudio.Component.VC.ATLMFC --quiet --norestart --wait
-            if ($LASTEXITCODE -notin 0, 3010) { throw "ATL install FAILED: vs_installer.exe exited with code $LASTEXITCODE" }
-            Write-Host "vs_installer.exe exit code: $LASTEXITCODE"
+          if (-not (Test-Path $msvcRoot)) { throw "ATL install FAILED: MSVC toolset root not found at $msvcRoot" }
+          $toolsets = Get-ChildItem -Path $msvcRoot -Directory | Sort-Object Name
+          if (-not $toolsets) { throw "ATL install FAILED: no MSVC toolset folders under $msvcRoot" }
+          Write-Host "MSVC toolsets present: $($toolsets.Name -join ', ')"
+          $installer = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vs_installer.exe"
+          if (-not (Test-Path $installer)) { throw "ATL install FAILED: vs_installer.exe not found at $installer" }
+          Write-Host "Force-installing Microsoft.VisualStudio.Component.VC.ATL + Microsoft.VisualStudio.Component.VC.ATLMFC for ALL toolsets (no skip) ..."
+          & $installer modify --installPath "$vsPath" --add Microsoft.VisualStudio.Component.VC.ATL --add Microsoft.VisualStudio.Component.VC.ATLMFC --quiet --norestart --wait
+          if ($LASTEXITCODE -notin 0, 3010) { throw "ATL install FAILED: vs_installer.exe exited with code $LASTEXITCODE" }
+          Write-Host "vs_installer.exe exit code: $LASTEXITCODE"
+          # Verify ATL headers under EVERY toolset folder, not just the first hit.
+          # This is what the old step missed: 14.52 had ATL, 14.44 (the one the
+          # x64 build actually uses) did not.
+          $required = @("atlbase.h", "atlcomcli.h", "atlstr.h")
+          foreach ($toolset in $toolsets) {
+            $includeDir = Join-Path $toolset.FullName "atlmfc\include"
+            foreach ($header in $required) {
+              $headerPath = Join-Path $includeDir $header
+              if (-not (Test-Path $headerPath)) { throw "ATL install FAILED: $header missing for toolset $($toolset.Name) at $headerPath - x64 build would fail C1083 again" }
+              Write-Host "ATL verified ($($toolset.Name)): $headerPath"
+            }
           }
-          $atlbase = Get-ChildItem -Path $msvcRoot -Recurse -Filter "atlbase.h" -ErrorAction SilentlyContinue | Select-Object -First 1
-          $atlcomcli = Get-ChildItem -Path $msvcRoot -Recurse -Filter "atlcomcli.h" -ErrorAction SilentlyContinue | Select-Object -First 1
-          $atlstr = Get-ChildItem -Path $msvcRoot -Recurse -Filter "atlstr.h" -ErrorAction SilentlyContinue | Select-Object -First 1
-          if (-not $atlbase) { throw "ATL install FAILED: atlbase.h still not found under $msvcRoot after install" }
-          if (-not $atlcomcli) { throw "ATL install FAILED: atlcomcli.h still not found under $msvcRoot after install" }
-          if (-not $atlstr) { throw "ATL install FAILED: atlstr.h still not found under $msvcRoot after install" }
-          Write-Host "ATL verified: $($atlbase.FullName)"
-          Write-Host "ATL verified: $($atlcomcli.FullName)"
-          Write-Host "ATL verified: $($atlstr.FullName)"
+          # Explicit check for the toolset the x64 build used in run 45295726682.
+          $x64Toolset = Join-Path $msvcRoot "14.44.35207\atlmfc\include"
+          foreach ($header in $required) {
+            $headerPath = Join-Path $x64Toolset $header
+            if (-not (Test-Path $headerPath)) { throw "ATL install FAILED: $header missing under 14.44.35207 at $headerPath - this is the x64 build toolset" }
+          }
+          Write-Host "ATL verified for all toolsets, including 14.44.35207 (x64 build toolset)"
 
       - name: Build OBS PS5 Lite
         shell: pwsh
