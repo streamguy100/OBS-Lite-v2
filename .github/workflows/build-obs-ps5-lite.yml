@@ -1,0 +1,129 @@
+name: Build OBS PS5 Lite 33.0.3 Windows
+
+on:
+  push:
+    branches:
+      - ps5-lite
+  workflow_dispatch:
+
+concurrency:
+  group: build-obs-ps5-lite-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-windows:
+    name: "Build Windows x64 (OBS PS5 Lite 33.0.3)"
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 300
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Clone upstream OBS Studio 33.0.3
+        shell: pwsh
+        run: |
+          git clone --depth 1 --branch 33.0.3 https://github.com/obsproject/obs-studio.git upstream
+          cd upstream
+          git rev-parse HEAD
+          if ((git rev-parse HEAD) -ne "f2aa9ce69caa7239ef26660b5889de4f53d9880e") { throw "Upstream HEAD is not f2aa9ce - wrong OBS version, stopping" }
+          git submodule update --init --recursive plugins/obs-browser plugins/obs-websocket deps/libdshowcapture/src
+          if ($LASTEXITCODE -ne 0) { throw "Submodule init failed with exit code $LASTEXITCODE" }
+          if (-not (Test-Path plugins/obs-browser/CMakeLists.txt)) { throw "obs-browser submodule missing" }
+          if (-not (Test-Path plugins/obs-websocket/CMakeLists.txt)) { throw "obs-websocket submodule missing" }
+          if (-not (Test-Path deps/libdshowcapture/src/external/capture-device-support/Library/EGAVResult.cpp)) { throw "libdshowcapture nested submodule missing" }
+
+      - name: Apply OBS PS5 Lite strip
+        shell: pwsh
+        run: |
+          python strip-ps5-lite.py upstream
+          if ($LASTEXITCODE -ne 0) { throw "strip-ps5-lite.py FAILED with exit code $LASTEXITCODE - stopping the build" }
+          cd upstream
+          if (Test-Path plugins/obs-x264) { throw "Strip did NOT land: plugins/obs-x264 still exists" }
+          if (Test-Path plugins/vlc-video) { throw "Strip did NOT land: plugins/vlc-video still exists" }
+          if (Test-Path plugins/decklink) { throw "Strip did NOT land: plugins/decklink still exists" }
+          if (Test-Path plugins/obs-ffmpeg/obs-ffmpeg-openh264.c) { throw "Strip did NOT land: obs-ffmpeg-openh264.c still exists" }
+          if (Test-Path plugins/obs-filters/noise-suppress-filter.c) { throw "Strip did NOT land: noise-suppress-filter.c still exists" }
+          if (Test-Path plugins/obs-filters/compressor-filter.c) { throw "Strip did NOT land: compressor-filter.c still exists" }
+          if (Test-Path plugins/obs-filters/gain-filter.c) { throw "Strip did NOT land: gain-filter.c still exists" }
+          if (-not (Test-Path plugins/canvas-chatbox/canvas-chatbox.cpp)) { throw "Strip did NOT land: canvas-chatbox plugin missing" }
+          if (-not (Test-Path plugins/obs-vst)) { throw "Strip removed too much: obs-vst is gone (VSTs do the filtering)" }
+          if (-not (Test-Path plugins/obs-transitions)) { throw "Strip removed too much: obs-transitions is gone" }
+          if (-not (Test-Path plugins/obs-websocket)) { throw "Strip removed too much: obs-websocket is gone" }
+          if (-not (Test-Path plugins/obs-text)) { throw "Strip removed too much: obs-text (GDI) is gone" }
+          if (-not (Test-Path plugins/win-capture)) { throw "Strip removed too much: win-capture is gone" }
+          if (-not (Test-Path plugins/win-dshow)) { throw "Strip removed too much: win-dshow is gone" }
+          if (-not (Test-Path plugins/obs-browser)) { throw "Strip removed too much: obs-browser is gone" }
+          if (-not (Test-Path plugins/obs-nvenc)) { throw "Strip removed too much: obs-nvenc is gone" }
+          if (-not (Test-Path plugins/obs-qsv11)) { throw "Strip removed too much: obs-qsv11 is gone" }
+          $plugins = (Get-ChildItem plugins -Directory | Select-Object -ExpandProperty Name)
+          Write-Host "Plugins left: $($plugins -join ', ')"
+          if ($plugins.Count -ne 19) { throw "Expected 19 plugin folders, got $($plugins.Count): $($plugins -join ', ')" }
+          Write-Host "Strip verified: 19 plugin folders, Lua-only scripting, hardware encoders only, both chatboxes in"
+
+      - name: Build OBS PS5 Lite
+        shell: pwsh
+        working-directory: upstream
+        run: |
+          .github/scripts/Build-Windows.ps1 -Target x64 -Configuration RelWithDebInfo
+          if ($LASTEXITCODE -ne 0) { throw "Build-Windows.ps1 FAILED with exit code $LASTEXITCODE" }
+          if (-not (Test-Path build_x64/install/bin/64bit/obs64.exe)) { throw "Build did NOT produce build_x64/install/bin/64bit/obs64.exe" }
+          Write-Host "obs64.exe built"
+
+      - name: Verify lite build and package
+        shell: pwsh
+        working-directory: upstream
+        run: |
+          $exe = "build_x64/install/bin/64bit/obs64.exe"
+          if (Test-Path build_x64/install/bin/64bit/obs-x264.dll) { throw "Lite check FAILED: obs-x264.dll is in the build" }
+          if (Test-Path build_x64/install/bin/64bit/obs-websocket.dll) { Write-Host "NOTE: obs-websocket.dll present (kept as-is per spec)" }
+          if (-not (Test-Path build_x64/install/bin/64bit/canvas-chatbox.dll)) { throw "Lite check FAILED: canvas-chatbox.dll is NOT in the build - both chatboxes missing" }
+          if (-not (Test-Path build_x64/install/bin/64bit/obs-vst.dll)) { throw "Lite check FAILED: obs-vst.dll is NOT in the build" }
+          if (-not (Test-Path build_x64/install/bin/64bit/obs-nvenc.dll)) { Write-Host "NOTE: obs-nvenc.dll not found by that name - checking encoder plugins"; Get-ChildItem build_x64/install -Recurse -Filter "*nvenc*" }
+          Get-ChildItem build_x64/install -Recurse -Filter "*x264*" | ForEach-Object { throw "Lite check FAILED: x264 file in build: $($_.FullName)" }
+          Get-ChildItem build_x64/install -Recurse -Filter "*vlc*" | ForEach-Object { throw "Lite check FAILED: vlc file in build: $($_.FullName)" }
+          Get-ChildItem build_x64/install -Recurse -Filter "*decklink*" | ForEach-Object { throw "Lite check FAILED: decklink file in build: $($_.FullName)" }
+          Get-ChildItem build_x64/install -Recurse -Filter "*noise-suppress*" | ForEach-Object { throw "Lite check FAILED: noise-suppress file in build: $($_.FullName)" }
+          if (Test-Path "OBS-PS5-Lite-33.0.3.zip") { Remove-Item "OBS-PS5-Lite-33.0.3.zip" -Force }
+          7z a OBS-PS5-Lite-33.0.3.zip build_x64/install/*
+          if ($LASTEXITCODE -ne 0) { throw "7z packaging FAILED" }
+          (Get-FileHash OBS-PS5-Lite-33.0.3.zip -Algorithm SHA256).Hash
+          (Get-FileHash $exe -Algorithm SHA256).Hash
+          Get-Item OBS-PS5-Lite-33.0.3.zip | Select-Object Length
+
+      - name: Upload artifact (zip)
+        uses: actions/upload-artifact@v7
+        with:
+          name: OBS-PS5-Lite-33.0.3.zip
+          path: upstream/OBS-PS5-Lite-33.0.3.zip
+
+      - name: Upload artifact (exe)
+        uses: actions/upload-artifact@v7
+        with:
+          name: obs64.exe
+          path: upstream/build_x64/install/bin/64bit/obs64.exe
+
+      - name: Publish release (public download, no login needed)
+        shell: pwsh
+        working-directory: upstream
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "v33.0.3-ps5-lite"
+          gh release view $tag 2>$null | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag OBS-PS5-Lite-33.0.3.zip --title "OBS PS5 Lite 33.0.3" --notes "OBS Studio 33.0.3 stripped to the PS5-lite spec: hardware encoders only, 50% PC budget, Canvas Chatbox (right) + Style Chatbox (left) in-app. Portable zip - run obs64.exe inside." --prerelease
+            if ($LASTEXITCODE -ne 0) { throw "gh release create FAILED" }
+          } else {
+            gh release upload $tag OBS-PS5-Lite-33.0.3.zip --clobber
+            if ($LASTEXITCODE -ne 0) { throw "gh release upload FAILED" }
+          }
+          Write-Host "Release published: https://github.com/streamguy100/OBS-Lite-v2/releases/tag/$tag"
