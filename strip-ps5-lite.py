@@ -488,6 +488,186 @@ def main():
         "useNV ? SIMPLE_ENCODER_NVENC : SIMPLE_ENCODER_QSV",
         count=2,
     )
+
+    # --- 1b. Settings crash fix: x264 removed but Settings assumed it ---
+    # Sir's PC, OBS 33.0.3, crash opening Settings:
+    #   obs64.exe!DisableIncompatibleSimpleContainer <- SimpleRecordingEncoderChanged
+    #   <- LoadSimpleOutputSettings <- LoadSettings <- OBSBasicSettings ctor
+    # Cause: get_simple_output_encoder() returns "obs_x264" for "x264" /
+    # "x264_lowcpu" AND as the default fallback, but the obs-x264 plugin
+    # is removed so obs_get_encoder_codec("obs_x264") returns NULL and
+    # std::string(NULL) crashes in ucrtbase (c0000005).
+    # (1) Null-guard DisableIncompatibleSimpleContainer.
+    replace_text(
+        "frontend/settings/OBSBasicSettings.cpp",
+        '\tstring vCodec = obs_get_encoder_codec(get_simple_output_encoder(QT_TO_UTF8(vEncoder)));',
+        '\t/* PS5 Lite: obs_x264 is removed, so obs_get_encoder_codec() can\n\t * return NULL for an unregistered encoder id. std::string(NULL)\n\t * crashes in ucrtbase - guard it (this was the Settings crash). */\n'
+        '\tconst char *vCodecC = obs_get_encoder_codec(get_simple_output_encoder(QT_TO_UTF8(vEncoder)));\n'
+        '\tstring vCodec = vCodecC ? vCodecC : "";',
+    )
+    # (2) Null-guard DisableIncompatibleSimpleCodecs (same NULL hazard:
+    # assigning NULL char* to a QString is also unsafe).
+    replace_text(
+        "frontend/settings/OBSBasicSettings.cpp",
+        '\t\t\tconst char *encoder_id = get_simple_output_encoder(QT_TO_UTF8(encName));\n'
+        '\t\t\tcodec = obs_get_encoder_codec(encoder_id);',
+        '\t\t\tconst char *encoder_id = get_simple_output_encoder(QT_TO_UTF8(encName));\n'
+        '\t\t\t/* PS5 Lite: obs_get_encoder_codec() returns NULL for an\n\t\t\t * unregistered encoder id (obs_x264 is removed); assigning\n\t\t\t * NULL to a QString crashes - guard it. */\n'
+        '\t\t\tconst char *codecC = obs_get_encoder_codec(encoder_id);\n'
+        '\t\t\tcodec = codecC ? codecC : QString();',
+    )
+    # (3) FillSimpleRecordingValues: drop the two Software (x264) entries.
+    # Hardware entries (QSV/NVENC/AMD) below are left untouched.
+    replace_text(
+        "frontend/settings/OBSBasicSettings.cpp",
+        '\tui->simpleOutRecEncoder->addItem(ENCODER_STR("Software"), QString(SIMPLE_ENCODER_X264));\n'
+        '\tui->simpleOutRecEncoder->addItem(ENCODER_STR("SoftwareLowCPU"), QString(SIMPLE_ENCODER_X264_LOWCPU));',
+        '\t/* PS5 Lite: x264 removed - hardware encoders only, no Software entries. */',
+    )
+    # (4) Stream settings: drop the Software (x264) entry.
+    replace_text(
+        "frontend/settings/OBSBasicSettings_Stream.cpp",
+        '\tui->simpleOutStrEncoder->addItem(ENCODER_STR("Software"), QString(SIMPLE_ENCODER_X264));',
+        '\t/* PS5 Lite: x264 removed - hardware encoders only, no Software entry. */',
+    )
+    # (5) get_simple_output_encoder: never return "obs_x264" again.
+    # Old "x264"/"x264_lowcpu" configs fall through to the hardware
+    # fallback at the end of the function instead of returning the
+    # unregistered obs_x264 id. EncoderAvailable is already declared
+    # extern in SimpleOutput.cpp.
+    replace_text(
+        "frontend/utility/SimpleOutput.cpp",
+        '\tif (strcmp(encoder, SIMPLE_ENCODER_X264) == 0) {\n'
+        '\t\treturn "obs_x264";\n'
+        '\t} else if (strcmp(encoder, SIMPLE_ENCODER_X264_LOWCPU) == 0) {\n'
+        '\t\treturn "obs_x264";\n'
+        '\t} else if (strcmp(encoder, SIMPLE_ENCODER_QSV) == 0) {',
+        '\t/* PS5 Lite: x264 removed - old "x264"/"x264_lowcpu" configs fall\n'
+        '\t * through to the hardware fallback at the end of this function. */\n'
+        '\tif (strcmp(encoder, SIMPLE_ENCODER_X264) == 0) {\n'
+        '\t} else if (strcmp(encoder, SIMPLE_ENCODER_X264_LOWCPU) == 0) {\n'
+        '\t} else if (strcmp(encoder, SIMPLE_ENCODER_QSV) == 0) {',
+    )
+    replace_text(
+        "frontend/utility/SimpleOutput.cpp",
+        '\t} else if (strcmp(encoder, SIMPLE_ENCODER_APPLE_HEVC) == 0) {\n'
+        '\t\treturn "com.apple.videotoolbox.videoencoder.ave.hevc";\n'
+        '#endif\n'
+        '\t}\n'
+        '\n'
+        '\treturn "obs_x264";\n'
+        '}',
+        '\t} else if (strcmp(encoder, SIMPLE_ENCODER_APPLE_HEVC) == 0) {\n'
+        '\t\treturn "com.apple.videotoolbox.videoencoder.ave.hevc";\n'
+        '#endif\n'
+        '\t}\n'
+        '\n'
+        '\t/* PS5 Lite: x264 is removed - never fall back to obs_x264 (it is\n'
+        '\t * never registered, so obs_get_encoder_codec() returns NULL and\n'
+        '\t * Settings crashes). Pick the first AVAILABLE hardware encoder. */\n'
+        '\tif (EncoderAvailable("obs_nvenc_h264_tex"))\n'
+        '\t\treturn "obs_nvenc_h264_tex";\n'
+        '\tif (EncoderAvailable("obs_qsv11_v2"))\n'
+        '\t\treturn "obs_qsv11_v2";\n'
+        '\tif (EncoderAvailable("h264_texture_amf"))\n'
+        '\t\treturn "h264_texture_amf";\n'
+        '\tif (EncoderAvailable("ffmpeg_nvenc"))\n'
+        '\t\treturn "ffmpeg_nvenc";\n'
+        '\t/* Last resort - the null-guards in OBSBasicSettings keep this from\n'
+        '\t * crashing; Settings shows the encoder as incompatible instead. */\n'
+        '\treturn "obs_qsv11_v2";\n'
+        '}',
+    )
+    # (6) Profiles: an unsupported hardware encoder used to fall back to
+    # x264. Fall back to the first hardware encoder that IS available
+    # on this PC instead (QSV > NVENC > AMD, QSV last resort).
+    replace_text(
+        "frontend/widgets/OBSBasic_Profiles.cpp",
+        '\tauto CheckEncoder = [&](const char *&name) {',
+        '\t/* PS5 Lite: x264 is removed - an unsupported hardware encoder must\n'
+        '\t * fall back to the first hardware encoder that IS available on this\n'
+        '\t * PC, never to x264 (unregistered -> NULL codec -> Settings crash). */\n'
+        '\tauto PickFallback = [&]() -> const char * {\n'
+        '\t\tif (qsv_supported)\n'
+        '\t\t\treturn SIMPLE_ENCODER_QSV;\n'
+        '\t\tif (nve_supported)\n'
+        '\t\t\treturn SIMPLE_ENCODER_NVENC;\n'
+        '\t\tif (amd_supported)\n'
+        '\t\t\treturn SIMPLE_ENCODER_AMD;\n'
+        '\t\treturn SIMPLE_ENCODER_QSV;\n'
+        '\t};\n'
+        '\n'
+        '\tauto CheckEncoder = [&](const char *&name) {',
+    )
+    replace_text(
+        "frontend/widgets/OBSBasic_Profiles.cpp",
+        "\t\t\t\tname = SIMPLE_ENCODER_X264;",
+        "\t\t\t\tname = PickFallback();",
+        count=10,
+    )
+    # (6b) Same crash family in the Settings stream fallbacks: a missing
+    # encoder used to fall back to x264 / obs_x264, which no longer
+    # exists in the dropdowns. Fall back to hardware instead.
+    replace_text(
+        "frontend/settings/OBSBasicSettings_Stream.cpp",
+        '\tif (enc == SIMPLE_ENCODER_QSV_AV1) {\n'
+        '\t\treturn SIMPLE_ENCODER_QSV;\n'
+        '\t}\n'
+        '\treturn SIMPLE_ENCODER_X264;\n'
+        '}',
+        '\tif (enc == SIMPLE_ENCODER_QSV_AV1) {\n'
+        '\t\treturn SIMPLE_ENCODER_QSV;\n'
+        '\t}\n'
+        '\t/* PS5 Lite: x264 removed - fall back to QSV (hardware). */\n'
+        '\treturn SIMPLE_ENCODER_QSV;\n'
+        '}',
+    )
+    replace_text(
+        "frontend/settings/OBSBasicSettings_Stream.cpp",
+        '\tif (enc == "obs_qsv11_av1") {\n'
+        '\t\treturn "obs_qsv11";\n'
+        '\t}\n'
+        '\treturn "obs_x264";\n'
+        '}',
+        '\tif (enc == "obs_qsv11_av1") {\n'
+        '\t\treturn "obs_qsv11";\n'
+        '\t}\n'
+        '\t/* PS5 Lite: obs_x264 removed - fall back to QSV (hardware). */\n'
+        '\treturn "obs_qsv11_v2";\n'
+        '}',
+    )
+    # (6c) service_supports_codec does strcmp(*codecs, codec) - if the
+    # encoder id is unregistered, codec is NULL and strcmp(NULL) crashes.
+    # Guard it (same Settings-load path as the reported crash).
+    replace_text(
+        "frontend/settings/OBSBasicSettings_Stream.cpp",
+        'static bool service_supports_codec(const char **codecs, const char *codec)\n'
+        '{\n'
+        '\tif (!codecs) {\n'
+        '\t\treturn true;\n'
+        '\t}',
+        'static bool service_supports_codec(const char **codecs, const char *codec)\n'
+        '{\n'
+        '\tif (!codecs) {\n'
+        '\t\treturn true;\n'
+        '\t}\n'
+        '\t/* PS5 Lite: codec is NULL when the encoder id is unregistered\n'
+        '\t * (obs_x264 removed); strcmp(NULL) crashes - guard it. */\n'
+        '\tif (!codec) {\n'
+        '\t\treturn false;\n'
+        '\t}',
+    )
+
+    # --- 1c. libx264-164.dll must be KEPT (not a strip removal, a guard) ---
+    # avcodec-62.dll (FFmpeg) links libx264-164.dll at load time, so
+    # obs64.exe will not even start without it (sir hit this in run #6:
+    # "libx264-164.dll was not found"). Only the obs-x264 PLUGIN
+    # (plugins/obs-x264) is removed - the runtime DLL in bin/64bit is
+    # never deleted by this strip. The workflow copies it from the
+    # obs-deps tree into the install tree (cmake --install does not,
+    # official packaging does it via CPack, which we do not run).
+    if any("libx264" in d for d in REMOVE_DIRS) or any("libx264" in f for f in REMOVE_FILES):
+        raise SystemExit("STRIP FAILED: strip must never remove libx264-164.dll (avcodec needs it to load)")
     # --- 16. Frames-per-send default (2 frames) ---
     replace_text(
         "frontend/widgets/OBSBasic.cpp",
@@ -597,6 +777,37 @@ def main():
     if "framesPerSend" not in ui:
         raise SystemExit("STRIP FAILED: framesPerSend picker missing from Settings UI")
     ET.fromstring(ui.encode("utf-8"))
+
+    # Settings crash fix (run #6, sir's PC): x264 gone but Settings
+    # assumed obs_x264 exists. Verify every patch landed.
+    settings = (ROOT / "frontend/settings/OBSBasicSettings.cpp").read_text(encoding="utf-8")
+    if 'string vCodec = obs_get_encoder_codec(' in settings:
+        raise SystemExit("STRIP FAILED: DisableIncompatibleSimpleContainer still has unguarded obs_get_encoder_codec")
+    if 'const char *vCodecC = obs_get_encoder_codec(' not in settings:
+        raise SystemExit("STRIP FAILED: DisableIncompatibleSimpleContainer null-guard missing")
+    if 'codec = obs_get_encoder_codec(encoder_id);' in settings:
+        raise SystemExit("STRIP FAILED: DisableIncompatibleSimpleCodecs still has unguarded obs_get_encoder_codec")
+    if 'addItem(ENCODER_STR("Software"), QString(SIMPLE_ENCODER_X264))' in settings:
+        raise SystemExit("STRIP FAILED: FillSimpleRecordingValues still offers x264")
+    if 'addItem(ENCODER_STR("SoftwareLowCPU"), QString(SIMPLE_ENCODER_X264_LOWCPU))' in settings:
+        raise SystemExit("STRIP FAILED: FillSimpleRecordingValues still offers x264 LowCPU")
+    stream = (ROOT / "frontend/settings/OBSBasicSettings_Stream.cpp").read_text(encoding="utf-8")
+    if 'simpleOutStrEncoder->addItem(ENCODER_STR("Software")' in stream:
+        raise SystemExit("STRIP FAILED: simpleOutStrEncoder still offers x264")
+    if 'return SIMPLE_ENCODER_X264;' in stream:
+        raise SystemExit("STRIP FAILED: get_simple_fallback still falls back to x264")
+    if 'return "obs_x264";' in stream:
+        raise SystemExit("STRIP FAILED: get_adv_fallback still falls back to obs_x264")
+    simple = (ROOT / "frontend/utility/SimpleOutput.cpp").read_text(encoding="utf-8")
+    if 'return "obs_x264";' in simple:
+        raise SystemExit("STRIP FAILED: get_simple_output_encoder still returns obs_x264")
+    if 'EncoderAvailable("obs_nvenc_h264_tex")' not in simple:
+        raise SystemExit("STRIP FAILED: get_simple_output_encoder hardware fallback missing")
+    profiles = (ROOT / "frontend/widgets/OBSBasic_Profiles.cpp").read_text(encoding="utf-8")
+    if 'name = SIMPLE_ENCODER_X264;' in profiles:
+        raise SystemExit("STRIP FAILED: CheckForSimpleModeX264Fallback still falls back to x264")
+    if 'PickFallback' not in profiles:
+        raise SystemExit("STRIP FAILED: CheckForSimpleModeX264Fallback PickFallback missing")
     print("PS5 Lite strip OK: 19 plugins, Lua-only scripting, hardware encoders only, both chatboxes in")
 
 
