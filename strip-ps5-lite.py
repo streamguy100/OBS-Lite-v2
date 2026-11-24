@@ -29,6 +29,17 @@ Locked decisions (23, from sir, 2026-11-23):
 18. Stinger transitions CHANGE, custom transitions in-app (obs-transitions
     kept: make one in the app, provide one already made, or use the
     pre-made simple ones - Cut/Fade/Swipe/Luma Wipe/Stinger)
+    PLUS: Stinger Maker plugin (plugins/stinger-maker) is a CORE module,
+    so it shows in Scene Transitions + and in Tools > Stinger Maker.
+    WHIP is also back as a CORE module (plugins/obs-webrtc) so it shows
+    in Settings > Stream > Service.
+    PLUGIN LOADING FIX (2026-11-24, sir's log ldOl7WObBNsBmNjV): OBS 33
+    core modules are a HARDCODED list built into obs.dll - a DLL dropped
+    into core/ is NEVER loaded if its name is not on that list (no log
+    entry at all). That is why obs-webrtc and stinger-maker never showed
+    up when dropped into core/ by hand. Both are now on the core list
+    via add_core_module(), exactly like canvas-chatbox. Do NOT remove
+    either again without also removing the plugin from the build.
 19. Preview render LEAVE
 20. Game Capture hook LEAVE
 21. Built-in audio filters REMOVE (Compressor/Limiter/Expander/Gain out,
@@ -120,6 +131,11 @@ endmacro()
 # scripting UI. nv-filters is kept but both NVIDIA SDK effects are OFF
 # (see its CMakeLists patch below) so nothing loads unless enabled.
 # canvas-chatbox is the new in-app dock beside the canvas.
+# obs-webrtc is back as a CORE module (WHIP in Settings > Stream > Service).
+# stinger-maker is a CORE module too (Scene Transitions + and Tools menu).
+# Both MUST be on this list: OBS 33 only loads core modules whose names
+# are in the hardcoded list built into obs.dll - a DLL dropped into
+# core/ by hand is never loaded (sir's log, 2026-11-24).
 add_core_module(canvas-chatbox)
 add_core_module(frontend-tools PLATFORMS WINDOWS MACOS LINUX WITH_MESSAGE)
 add_core_module(image-source)
@@ -132,7 +148,9 @@ add_core_module(obs-outputs)
 add_core_module(obs-qsv11 PLATFORMS WINDOWS LINUX ARCHITECTURES x64 x86_64)
 add_core_module(obs-text PLATFORMS WINDOWS)
 add_core_module(obs-transitions)
+add_core_module(stinger-maker)
 add_core_module(obs-vst PLATFORMS WINDOWS MACOS LINUX WITH_MESSAGE)
+add_core_module(obs-webrtc)
 check_obs_websocket()
 add_core_module(rtmp-services)
 add_core_module(text-freetype2)
@@ -354,7 +372,9 @@ REMOVE_DIRS = [
     "plugins/mac-videotoolbox",
     "plugins/mac-virtualcam",
     "plugins/obs-libfdk",
-    "plugins/obs-webrtc",
+    # NOTE: plugins/obs-webrtc is NOT removed - WHIP (Settings > Stream >
+    # Service) needs it, and it must be a CORE module to load at all.
+    # Only plugins/obs-x264 (the x264 ENCODER plugin) is removed.
     "plugins/obs-x264",
     "plugins/oss-audio",
     "plugins/sndio",
@@ -419,6 +439,31 @@ def main():
     if "add_library(canvas-chatbox MODULE)" not in chatbox_cmake:
         raise SystemExit("STRIP FAILED: canvas-chatbox/CMakeLists.txt has no MODULE_LIBRARY target")
     print("copied plugins/canvas-chatbox (Canvas Chatbox right + Style Chatbox left)")
+
+    # --- copy the Stinger Maker plugin into the tree (CORE module) ---
+    # Same pattern as canvas-chatbox: OBS 33 only loads core modules on
+    # the hardcoded list in obs.dll, so a hand-dropped DLL in core/ is
+    # never loaded (sir's log, 2026-11-24). It must be built in.
+    src = SCRIPT_DIR / "stinger-maker"
+    if not src.is_dir():
+        raise SystemExit(f"STRIP FAILED: stinger-maker plugin missing next to strip script: {src}")
+    dst = ROOT / "plugins/stinger-maker"
+    if dst.exists():
+        shutil.rmtree(dst)
+    shutil.copytree(src, dst)
+    for rel in ("CMakeLists.txt", "stinger-maker.cpp",
+                "data/stinger_maker.effect", "data/locale/en-US.ini",
+                "cmake/windows/obs-module.rc.in"):
+        must_exist(f"plugins/stinger-maker/{rel}")
+    plugins_cmake = (ROOT / "plugins/CMakeLists.txt").read_text(encoding="utf-8")
+    if "add_core_module(stinger-maker)" not in plugins_cmake:
+        raise SystemExit("STRIP FAILED: plugins/CMakeLists.txt does not register stinger-maker")
+    if "add_core_module(obs-webrtc)" not in plugins_cmake:
+        raise SystemExit("STRIP FAILED: plugins/CMakeLists.txt does not register obs-webrtc (WHIP)")
+    stinger_cmake = (ROOT / "plugins/stinger-maker/CMakeLists.txt").read_text(encoding="utf-8")
+    if "add_library(stinger-maker MODULE)" not in stinger_cmake:
+        raise SystemExit("STRIP FAILED: stinger-maker/CMakeLists.txt has no MODULE_LIBRARY target")
+    print("copied plugins/stinger-maker (Stinger Maker transition + Tools maker)")
 
     # --- top CMakeLists: drop metal + test-input, scripting stays ON ---
     replace_text("CMakeLists.txt", "  add_subdirectory(libobs-metal)\n", "")
@@ -764,7 +809,8 @@ def main():
         "canvas-chatbox", "frontend-tools", "image-source", "nv-filters",
         "obs-browser", "obs-ffmpeg", "obs-filters", "obs-nvenc",
         "obs-outputs", "obs-qsv11", "obs-text", "obs-transitions",
-        "obs-vst", "obs-websocket", "rtmp-services", "text-freetype2",
+        "obs-vst", "obs-webrtc", "obs-websocket", "rtmp-services",
+        "stinger-maker", "text-freetype2",
         "win-capture", "win-dshow", "win-wasapi",
     ])
     if plugins != expected:
@@ -808,7 +854,7 @@ def main():
         raise SystemExit("STRIP FAILED: CheckForSimpleModeX264Fallback still falls back to x264")
     if 'PickFallback' not in profiles:
         raise SystemExit("STRIP FAILED: CheckForSimpleModeX264Fallback PickFallback missing")
-    print("PS5 Lite strip OK: 19 plugins, Lua-only scripting, hardware encoders only, both chatboxes in")
+    print("PS5 Lite strip OK: 21 plugins, Lua-only scripting, hardware encoders only, both chatboxes in, WHIP + Stinger Maker as core modules")
 
 
 if __name__ == "__main__":

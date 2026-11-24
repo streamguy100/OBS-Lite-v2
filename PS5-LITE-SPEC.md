@@ -69,7 +69,12 @@ core streaming/recording.
   CPU meter — sir's live Windows run is the final check.
 - 18: `obs-transitions` kept (Cut/Fade/Swipe/Luma Wipe/Stinger). Make a
   transition in the app, provide one already made, or use the pre-made
-  simple ones.
+  simple ones. Stinger Maker (`stinger-maker`, Scene Transitions + and
+  Tools > Stinger Maker) and WHIP (`obs-webrtc`, Settings > Stream >
+  Service) are built in as CORE modules. Plugin loading fix 2026-11-24:
+  OBS 33 only loads core modules on the hardcoded list in obs.dll - a
+  DLL dropped into core/ by hand is never loaded, which is why both
+  failed to show when sir dropped them in (log ldOl7WObBNsBmNjV).
 - 23: `TimedCheckForUpdates` returns early if streaming or recording is
   active. Upstream OBS has no telemetry or crash reporting in this tree.
 
