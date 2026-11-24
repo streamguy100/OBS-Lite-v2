@@ -180,12 +180,24 @@ jobs:
         shell: pwsh
         working-directory: upstream
         run: |
+          # OBS 33 Windows install layout (run #4 root cause): core-module
+          # DLLs do NOT live in bin/64bit/ - they install to
+          # core/<plugin>/<plugin>.dll, which is exactly where the loader
+          # looks for them (libobs/obs-core-modules-loader-win.c:
+          # "../../core/%module%/%module%" relative to bin/64bit/obs64.exe,
+          # and cmake/windows/helpers.cmake installs MODULE_LIBRARY targets
+          # to LIBRARY DESTINATION "core/<plugin>"). Run #4 failed here in
+          # 1s because this step checked bin/64bit/canvas-chatbox.dll -
+          # the DLL was built and installed to core/canvas-chatbox/ all
+          # along. Only obs64.exe itself lives in bin/64bit/.
           $exe = "build_x64/install/bin/64bit/obs64.exe"
-          if (Test-Path build_x64/install/bin/64bit/obs-x264.dll) { throw "Lite check FAILED: obs-x264.dll is in the build" }
-          if (Test-Path build_x64/install/bin/64bit/obs-websocket.dll) { Write-Host "NOTE: obs-websocket.dll present (kept as-is per spec)" }
-          if (-not (Test-Path build_x64/install/bin/64bit/canvas-chatbox.dll)) { throw "Lite check FAILED: canvas-chatbox.dll is NOT in the build - both chatboxes missing" }
-          if (-not (Test-Path build_x64/install/bin/64bit/obs-vst.dll)) { throw "Lite check FAILED: obs-vst.dll is NOT in the build" }
-          if (-not (Test-Path build_x64/install/bin/64bit/obs-nvenc.dll)) { Write-Host "NOTE: obs-nvenc.dll not found by that name - checking encoder plugins"; Get-ChildItem build_x64/install -Recurse -Filter "*nvenc*" }
+          $core = "build_x64/install/core"
+          if (Test-Path "$core/obs-x264/obs-x264.dll") { throw "Lite check FAILED: obs-x264.dll is in the build" }
+          if (Test-Path "$core/obs-websocket/obs-websocket.dll") { Write-Host "NOTE: obs-websocket.dll present (kept as-is per spec)" }
+          if (-not (Test-Path "$core/canvas-chatbox/canvas-chatbox.dll")) { throw "Lite check FAILED: canvas-chatbox.dll is NOT in the build - both chatboxes missing" }
+          if (-not (Test-Path "$core/canvas-chatbox/data/locale/en-US.ini")) { throw "Lite check FAILED: canvas-chatbox locale data missing at core/canvas-chatbox/data/locale/en-US.ini" }
+          if (-not (Test-Path "$core/obs-vst/obs-vst.dll")) { throw "Lite check FAILED: obs-vst.dll is NOT in the build" }
+          if (-not (Test-Path "$core/obs-nvenc/obs-nvenc.dll")) { Write-Host "NOTE: obs-nvenc.dll not found by that name - checking encoder plugins"; Get-ChildItem build_x64/install -Recurse -Filter "*nvenc*" }
           Get-ChildItem build_x64/install -Recurse -Filter "*x264*" | ForEach-Object { throw "Lite check FAILED: x264 file in build: $($_.FullName)" }
           Get-ChildItem build_x64/install -Recurse -Filter "*vlc*" | ForEach-Object { throw "Lite check FAILED: vlc file in build: $($_.FullName)" }
           Get-ChildItem build_x64/install -Recurse -Filter "*decklink*" | ForEach-Object { throw "Lite check FAILED: decklink file in build: $($_.FullName)" }
