@@ -413,20 +413,12 @@ static enum gs_color_space stinger_video_get_color_space(void *data, size_t coun
 	return obs_transition_video_get_color_space(s->source);
 }
 
-static struct obs_source_info stinger_transition = {
-	.id = "stinger_maker",
-	.type = OBS_SOURCE_TYPE_TRANSITION,
-	.output_flags = OBS_SOURCE_VIDEO,
-	.get_name = stinger_get_name,
-	.create = stinger_create,
-	.destroy = stinger_destroy,
-	.get_defaults = stinger_defaults,
-	.get_properties = stinger_properties,
-	.update = stinger_update,
-	.video_render = stinger_video_render,
-	.audio_render = stinger_audio_render,
-	.video_get_color_space = stinger_video_get_color_space,
-};
+/* NOTE: OBS builds C++ plugins at C++17, and MSVC rejects C++
+ * designated initializers (.id = ...) before C++20, so this struct
+ * is filled in field-by-field in obs_module_load(), the same way
+ * OBS's own C++ plugins (e.g. decklink) do it. Do not rewrite it
+ * back to designated initializers or the Windows build fails. */
+static struct obs_source_info stinger_transition;
 
 /* ------------------------------------------------------------------ */
 /* Tools > Stinger Maker dialog                                        */
@@ -653,6 +645,19 @@ bool obs_module_load(void)
 	int minor = (int)((v >> 16) & 0xFF);
 	int patch = (int)(v & 0xFFFF);
 	blog(LOG_INFO, "Stinger Maker: loading on OBS %d.%d.%d", major, minor, patch);
+
+	stinger_transition.id = "stinger_maker";
+	stinger_transition.type = OBS_SOURCE_TYPE_TRANSITION;
+	stinger_transition.output_flags = OBS_SOURCE_VIDEO;
+	stinger_transition.get_name = stinger_get_name;
+	stinger_transition.create = stinger_create;
+	stinger_transition.destroy = stinger_destroy;
+	stinger_transition.get_defaults = stinger_defaults;
+	stinger_transition.get_properties = stinger_properties;
+	stinger_transition.update = stinger_update;
+	stinger_transition.video_render = stinger_video_render;
+	stinger_transition.audio_render = stinger_audio_render;
+	stinger_transition.video_get_color_space = stinger_video_get_color_space;
 
 	obs_register_source(&stinger_transition);
 	obs_frontend_add_tools_menu_item("Stinger Maker", openStingerMaker, nullptr);
