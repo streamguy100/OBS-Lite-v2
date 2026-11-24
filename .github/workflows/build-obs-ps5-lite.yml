@@ -55,6 +55,9 @@ jobs:
           if (Test-Path plugins/obs-filters/compressor-filter.c) { throw "Strip did NOT land: compressor-filter.c still exists" }
           if (Test-Path plugins/obs-filters/gain-filter.c) { throw "Strip did NOT land: gain-filter.c still exists" }
           if (-not (Test-Path plugins/canvas-chatbox/canvas-chatbox.cpp)) { throw "Strip did NOT land: canvas-chatbox plugin missing" }
+          if (-not (Test-Path plugins/stinger-maker/stinger-maker.cpp)) { throw "Strip did NOT land: stinger-maker plugin missing" }
+          if (-not (Test-Path plugins/stinger-maker/data/stinger_maker.effect)) { throw "Strip did NOT land: stinger-maker.effect missing" }
+          if (-not (Test-Path plugins/obs-webrtc/whip-service.cpp)) { throw "Strip removed too much: obs-webrtc is gone (WHIP needs it)" }
           if (-not (Test-Path plugins/obs-vst)) { throw "Strip removed too much: obs-vst is gone (VSTs do the filtering)" }
           if (-not (Test-Path plugins/obs-transitions)) { throw "Strip removed too much: obs-transitions is gone" }
           if (-not (Test-Path plugins/obs-websocket)) { throw "Strip removed too much: obs-websocket is gone" }
@@ -66,8 +69,8 @@ jobs:
           if (-not (Test-Path plugins/obs-qsv11)) { throw "Strip removed too much: obs-qsv11 is gone" }
           $plugins = (Get-ChildItem plugins -Directory | Select-Object -ExpandProperty Name)
           Write-Host "Plugins left: $($plugins -join ', ')"
-          if ($plugins.Count -ne 19) { throw "Expected 19 plugin folders, got $($plugins.Count): $($plugins -join ', ')" }
-          Write-Host "Strip verified: 19 plugin folders, Lua-only scripting, hardware encoders only, both chatboxes in"
+          if ($plugins.Count -ne 21) { throw "Expected 21 plugin folders, got $($plugins.Count): $($plugins -join ', ')" }
+          Write-Host "Strip verified: 21 plugin folders, Lua-only scripting, hardware encoders only, both chatboxes in, WHIP + Stinger Maker as core modules"
 
       - name: Fix ATL headers (copy, no installer)
         shell: pwsh
@@ -197,6 +200,15 @@ jobs:
           if (-not (Test-Path "$core/canvas-chatbox/canvas-chatbox.dll")) { throw "Lite check FAILED: canvas-chatbox.dll is NOT in the build - both chatboxes missing" }
           if (-not (Test-Path "$core/canvas-chatbox/data/locale/en-US.ini")) { throw "Lite check FAILED: canvas-chatbox locale data missing at core/canvas-chatbox/data/locale/en-US.ini" }
           if (-not (Test-Path "$core/obs-vst/obs-vst.dll")) { throw "Lite check FAILED: obs-vst.dll is NOT in the build" }
+          # Plugin loading fix (2026-11-24, sir's log): OBS 33 only loads
+          # core modules on the hardcoded list in obs.dll, so obs-webrtc
+          # (WHIP) and stinger-maker MUST be built in as core modules -
+          # a DLL dropped into core/ by hand is never loaded.
+          if (-not (Test-Path "$core/obs-webrtc/obs-webrtc.dll")) { throw "Lite check FAILED: obs-webrtc.dll is NOT in the build - WHIP will not show in Settings > Stream > Service" }
+          if (-not (Test-Path "$core/obs-webrtc/data/locale/en-US.ini")) { throw "Lite check FAILED: obs-webrtc locale data missing at core/obs-webrtc/data/locale/en-US.ini" }
+          if (-not (Test-Path "$core/stinger-maker/stinger-maker.dll")) { throw "Lite check FAILED: stinger-maker.dll is NOT in the build - Stinger Maker will not show in Scene Transitions +" }
+          if (-not (Test-Path "$core/stinger-maker/data/stinger_maker.effect")) { throw "Lite check FAILED: stinger_maker.effect missing at core/stinger-maker/data/stinger_maker.effect" }
+          if (-not (Test-Path "$core/stinger-maker/data/locale/en-US.ini")) { throw "Lite check FAILED: stinger-maker locale data missing at core/stinger-maker/data/locale/en-US.ini" }
           if (-not (Test-Path "$core/obs-nvenc/obs-nvenc.dll")) { Write-Host "NOTE: obs-nvenc.dll not found by that name - checking encoder plugins"; Get-ChildItem build_x64/install -Recurse -Filter "*nvenc*" }
           # PS5 Lite run #6: obs64.exe would not start on sir's PC -
           # avcodec-62.dll links libx264-164.dll at load time, but
@@ -209,6 +221,20 @@ jobs:
           Copy-Item $x264dll.FullName "build_x64/install/bin/64bit/libx264-164.dll" -Force
           Write-Host "Restored libx264-164.dll from $($x264dll.FullName)"
           if (-not (Test-Path "build_x64/install/bin/64bit/libx264-164.dll")) { throw "Lite check FAILED: libx264-164.dll is NOT in the build - avcodec-62.dll needs it, obs64.exe will not start" }
+          # WHIP needs datachannel.dll next to obs64.exe (obs-webrtc.dll
+          # links it at load time). Same story as libx264-164.dll above:
+          # cmake --install may not copy it, so restore it from the
+          # obs-deps tree; if it is already in install/bin/64bit (cmake
+          # did copy it) there is nothing to restore - only fail if it
+          # is missing everywhere.
+          if (-not (Test-Path "build_x64/install/bin/64bit/datachannel.dll")) {
+            $dcDll = Get-ChildItem .deps -Recurse -Filter "datachannel.dll" -ErrorAction SilentlyContinue | Select-Object -First 1
+            if (-not $dcDll) { $dcDll = Get-ChildItem build_x64 -Recurse -Filter "datachannel.dll" -ErrorAction SilentlyContinue | Where-Object { $_.FullName -notlike "*\install\*" } | Select-Object -First 1 }
+            if (-not $dcDll) { throw "Lite check FAILED: datachannel.dll not found under .deps or build_x64 and not in install/bin/64bit - obs-webrtc.dll needs it to load, WHIP will not show" }
+            Copy-Item $dcDll.FullName "build_x64/install/bin/64bit/datachannel.dll" -Force
+            Write-Host "Restored datachannel.dll from $($dcDll.FullName)"
+          }
+          if (-not (Test-Path "build_x64/install/bin/64bit/datachannel.dll")) { throw "Lite check FAILED: datachannel.dll is NOT in the build - obs-webrtc.dll needs it, WHIP will not show" }
           # NOTE: the scan below is *obs-x264* (the removed plugin), NOT
           # *x264* - libx264-164.dll is a runtime library avcodec needs
           # and must be present (see above); only the plugin is banned.
@@ -248,7 +274,7 @@ jobs:
           # explicitly on every gh call.
           gh release view $tag --repo streamguy100/OBS-Lite-v2 2>$null | Out-Null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag OBS-PS5-Lite-33.0.3.zip --repo streamguy100/OBS-Lite-v2 --title "OBS PS5 Lite 33.0.3" --notes "OBS Studio 33.0.3 stripped to the PS5-lite spec: hardware encoders only, 50% PC budget, Canvas Chatbox (right) + Style Chatbox (left) in-app. Portable zip - run obs64.exe inside." --prerelease
+            gh release create $tag OBS-PS5-Lite-33.0.3.zip --repo streamguy100/OBS-Lite-v2 --title "OBS PS5 Lite 33.0.3" --notes "OBS Studio 33.0.3 stripped to the PS5-lite spec: hardware encoders only, 50% PC budget, Canvas Chatbox (right) + Style Chatbox (left) in-app. WHIP (obs-webrtc) and Stinger Maker are built in as core modules, so WHIP shows in Settings > Stream > Service and Stinger Maker shows in Scene Transitions + and Tools > Stinger Maker - no drop-in files needed. Portable zip - run obs64.exe inside." --prerelease
             if ($LASTEXITCODE -ne 0) { throw "gh release create FAILED" }
           } else {
             gh release upload $tag OBS-PS5-Lite-33.0.3.zip --repo streamguy100/OBS-Lite-v2 --clobber
