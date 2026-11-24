@@ -1,0 +1,115 @@
+uniform float4x4 ViewProj;
+uniform texture2d tex_a;
+uniform texture2d tex_b;
+uniform float progress;
+uniform float point;
+uniform int style;
+uniform float4 color1;
+uniform float4 color2;
+
+sampler_state textureSampler {
+	Filter    = Linear;
+	AddressU  = Clamp;
+	AddressV  = Clamp;
+};
+
+struct VertData {
+	float4 pos : POSITION;
+	float2 uv  : TEXCOORD0;
+};
+
+struct FragData {
+	float2 uv  : TEXCOORD0;
+};
+
+VertData VSDefault(VertData v_in)
+{
+	VertData vert_out;
+	vert_out.pos = mul(float4(v_in.pos.xyz, 1.0), ViewProj);
+	vert_out.uv = v_in.uv;
+	return vert_out;
+}
+
+float hash1(float n)
+{
+	return frac(sin(n) * 43758.5453);
+}
+
+float4 StingerPS(FragData f_in) : TARGET
+{
+	float2 uv = f_in.uv;
+	float p = clamp(progress, 0.0, 1.0);
+	float pt = clamp(point, 0.05, 0.95);
+	/* Wipe edge: at p == point the edge is at the centre of the
+	 * screen, so the scene has half switched. After that it runs
+	 * to the far edge and scene B stays. */
+	float edge = clamp(p * (0.5 / pt), 0.0, 1.0);
+	float mixAmt = smoothstep(pt - 0.08, pt + 0.08, p);
+	float4 a = tex_a.Sample(textureSampler, uv);
+	float4 b = tex_b.Sample(textureSampler, uv);
+	float4 outc = a;
+
+	if (style == 0) {
+		/* Wipe: B sweeps in from the left behind a colour bar. */
+		outc = (uv.x < edge) ? b : a;
+		float d = abs(uv.x - edge);
+		if (d < 0.015) {
+			outc = lerp(color1, color2, p);
+			outc.a = 1.0;
+		}
+	} else if (style == 1) {
+		/* Slide: A slides out to the left, B slides in from the right. */
+		float2 a_uv = uv + float2(edge, 0.0);
+		float2 b_uv = uv + float2(edge - 1.0, 0.0);
+		float4 av = (a_uv.x <= 1.0) ? tex_a.Sample(textureSampler, a_uv) : b;
+		float4 bv = (b_uv.x >= 0.0) ? tex_b.Sample(textureSampler, b_uv) : a;
+		outc = (uv.x < edge) ? bv : av;
+		float d = abs(uv.x - edge);
+		if (d < 0.012) {
+			outc = lerp(color1, color2, p);
+			outc.a = 1.0;
+		}
+	} else if (style == 2) {
+		/* Zoom: B zooms in from the centre over A. */
+		float s = 1.0 + 0.45 * (1.0 - mixAmt);
+		float2 zuv = (uv - 0.5) * s + 0.5;
+		float4 bv = tex_b.Sample(textureSampler, zuv);
+		outc = lerp(a, bv, mixAmt);
+	} else if (style == 3) {
+		/* Glitch: RGB split + jitter that peaks at the point. */
+		float g = sin(p * 55.0) * 0.04 * (1.0 - abs(p - pt) * 2.0);
+		float2 off = float2(g * (hash1(uv.y * 100.0) - 0.5) * 2.0, 0.0);
+		float4 ar = tex_a.Sample(textureSampler, uv + off);
+		float4 bb = tex_b.Sample(textureSampler, uv - off);
+		float4 mixed = lerp(ar, bb, mixAmt);
+		mixed.r = lerp(ar.r, bb.r, mixAmt);
+		mixed.b = lerp(ar.b, bb.b, mixAmt);
+		outc = mixed;
+		if (abs(p - pt) < 0.05) {
+			outc.rgb += color2.rgb * 0.15;
+		}
+	} else {
+		/* Neon: wipe with a glowing edge. */
+		outc = (uv.x < edge) ? b : a;
+		float d = abs(uv.x - edge);
+		float glow = exp(-d * 22.0);
+		outc.rgb += color2.rgb * glow * 0.9;
+		if (d < 0.015) {
+			outc = lerp(color1, color2, p);
+			outc.a = 1.0;
+		}
+		/* Slight vignette so the neon reads. */
+		float vig = smoothstep(1.2, 0.4, length(uv - 0.5) * 1.4);
+		outc.rgb *= (0.85 + 0.15 * vig);
+	}
+	return outc;
+}
+
+technique Stinger
+{
+	pass
+	{
+		vertex_shader = VSDefault(v_in);
+		pixel_shader = StingerPS(f_in);
+	}
+}
