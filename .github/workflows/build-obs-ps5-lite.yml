@@ -69,6 +69,36 @@ jobs:
           if ($plugins.Count -ne 19) { throw "Expected 19 plugin folders, got $($plugins.Count): $($plugins -join ', ')" }
           Write-Host "Strip verified: 19 plugin folders, Lua-only scripting, hardware encoders only, both chatboxes in"
 
+      - name: Install Visual Studio ATL component
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (-not (Test-Path $vswhere)) { throw "ATL install FAILED: vswhere.exe not found at $vswhere" }
+          $vsPath = (& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath | Select-Object -First 1).Trim()
+          if (-not $vsPath -or -not (Test-Path $vsPath)) { throw "ATL install FAILED: no Visual Studio installation found via vswhere" }
+          Write-Host "VS install at: $vsPath"
+          $msvcRoot = Join-Path $vsPath "VC\Tools\MSVC"
+          $atlFound = Get-ChildItem -Path $msvcRoot -Recurse -Filter "atlbase.h" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($atlFound) {
+            Write-Host "ATL already present: $($atlFound.FullName) - skipping VS Installer"
+          } else {
+            $installer = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vs_installer.exe"
+            if (-not (Test-Path $installer)) { throw "ATL install FAILED: vs_installer.exe not found at $installer" }
+            Write-Host "Installing Microsoft.VisualStudio.Component.VC.ATL + Microsoft.VisualStudio.Component.VC.ATLMFC ..."
+            & $installer modify --installPath "$vsPath" --add Microsoft.VisualStudio.Component.VC.ATL --add Microsoft.VisualStudio.Component.VC.ATLMFC --quiet --norestart --wait
+            if ($LASTEXITCODE -notin 0, 3010) { throw "ATL install FAILED: vs_installer.exe exited with code $LASTEXITCODE" }
+            Write-Host "vs_installer.exe exit code: $LASTEXITCODE"
+          }
+          $atlbase = Get-ChildItem -Path $msvcRoot -Recurse -Filter "atlbase.h" -ErrorAction SilentlyContinue | Select-Object -First 1
+          $atlcomcli = Get-ChildItem -Path $msvcRoot -Recurse -Filter "atlcomcli.h" -ErrorAction SilentlyContinue | Select-Object -First 1
+          $atlstr = Get-ChildItem -Path $msvcRoot -Recurse -Filter "atlstr.h" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $atlbase) { throw "ATL install FAILED: atlbase.h still not found under $msvcRoot after install" }
+          if (-not $atlcomcli) { throw "ATL install FAILED: atlcomcli.h still not found under $msvcRoot after install" }
+          if (-not $atlstr) { throw "ATL install FAILED: atlstr.h still not found under $msvcRoot after install" }
+          Write-Host "ATL verified: $($atlbase.FullName)"
+          Write-Host "ATL verified: $($atlcomcli.FullName)"
+          Write-Host "ATL verified: $($atlstr.FullName)"
+
       - name: Build OBS PS5 Lite
         shell: pwsh
         working-directory: upstream
