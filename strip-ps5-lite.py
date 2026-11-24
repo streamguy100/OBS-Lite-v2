@@ -408,6 +408,16 @@ def main():
     for rel in ("CMakeLists.txt", "canvas-chatbox.cpp",
                 "data/locale/en-US.ini", "cmake/windows/obs-module.rc.in"):
         must_exist(f"plugins/canvas-chatbox/{rel}")
+    # Run #4 root cause guard: the plugin must actually be REGISTERED
+    # with CMake (add_core_module -> add_subdirectory) and must declare
+    # a MODULE_LIBRARY target, otherwise the build succeeds silently
+    # with no canvas-chatbox.dll and step 8 is the first to notice.
+    plugins_cmake = (ROOT / "plugins/CMakeLists.txt").read_text(encoding="utf-8")
+    if "add_core_module(canvas-chatbox)" not in plugins_cmake:
+        raise SystemExit("STRIP FAILED: plugins/CMakeLists.txt does not register canvas-chatbox")
+    chatbox_cmake = (ROOT / "plugins/canvas-chatbox/CMakeLists.txt").read_text(encoding="utf-8")
+    if "add_library(canvas-chatbox MODULE)" not in chatbox_cmake:
+        raise SystemExit("STRIP FAILED: canvas-chatbox/CMakeLists.txt has no MODULE_LIBRARY target")
     print("copied plugins/canvas-chatbox (Canvas Chatbox right + Style Chatbox left)")
 
     # --- top CMakeLists: drop metal + test-input, scripting stays ON ---
