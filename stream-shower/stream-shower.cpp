@@ -25,6 +25,21 @@
  *     Twitch Client ID + token in the source properties). No page
  *     scraping. A link whose live status cannot be checked is never
  *     skipped on a guess.
+ *   - Offline-screen watch (sir, 2026-11-25): the Watcher dock also
+ *     watches the player IT is showing for the official Twitch /
+ *     Kick offline screen, and when that screen shows, it triggers
+ *     the same skip. This is the path that works WITHOUT Helix
+ *     credentials: a Twitch link with no credentials can still be
+ *     skipped once its offline screen is actually seen. The probe
+ *     is DOM / JS inside the dock's own player page — it looks for
+ *     the offline text AND for the absence of a playing <video>,
+ *     and reports back by setting document.title (the only return
+ *     channel the OBS browser-panel API gives: executeJavaScript is
+ *     fire-and-forget, titleChanged is the signal). The offline
+ *     screen must be present for ~3 seconds straight before it
+ *     skips, so a brief buffering / loading screen never
+ *     false-triggers. Either trigger (API says offline OR offline
+ *     screen seen) causes the same skip.
  *   - Next / Previous buttons in the dock.
  *   - Countdown in the dock (link number + channel + time left).
  *   - Channel name only (see above).
@@ -63,7 +78,19 @@
  *     + access token (paste them in the source properties; get them
  *     from dev.twitch.tv) — without them, Twitch links cannot be
  *     checked, so they are treated as "check unavailable": they
- *     still play on sir's timer, they are just never auto-skipped.
+ *     still play on sir's timer, they are just never auto-skipped
+ *     by the API path. The OFFLINE-SCREEN watch is the path that
+ *     works without credentials: it watches the dock's own player
+ *     for the official Twitch / Kick offline screen and skips when
+ *     it is seen for ~3 seconds straight. It watches the Watcher
+ *     dock's player (same URL as the source's private browser) —
+ *     the source's private browser_source has no JS API OBS exposes
+ *     to a plugin, so the dock is the only place the page can be
+ *     probed. If Twitch / Kick change their offline screen layout
+ *     or wording, the probe's text match may need updating; the API
+ *     check keeps working regardless. If OBS / CEF throttles the
+ *     dock while it is hidden, the screen watch may be delayed —
+ *     the API check still runs on its own timer.
  *     Login-gated / subscriber-only streams need the user signed in
  *     inside OBS's browser (cookies are shared with the CEF browser,
  *     same as any Browser Source).
@@ -134,6 +161,7 @@ struct ShowerState {
 	double elapsed = 0.0; /* seconds on the current link */
 	bool needsApply = false; /* URL changed, dock must push it */
 	bool audioOn = false; /* false = Shower muted (default) */
+	bool screenWatch = true; /* watch the dock player for the official offline screen */
 	QString twitchClientId; /* optional, for Helix live checks */
 	QString twitchToken; /* optional, for Helix live checks */
 	std::map<QString, LiveCache> liveCache; /* "twitch:name" -> result */
@@ -141,6 +169,46 @@ struct ShowerState {
 };
 
 static ShowerState g_state;
+
+/* Offline-screen probe (DOM / JS, run inside the Watcher dock's
+ * player page — the dock and the source show the same player URL).
+ *
+ * Why this route: the OBS browser-panel API gives executeJavaScript
+ * (fire-and-forget, no return value) and a titleChanged signal, and
+ * nothing else. So the probe reports back by setting document.title
+ * to "SHOWER:<state>:<n>", with a counter so the title changes on
+ * every probe and titleChanged fires every time. The dock parses it.
+ *
+ * Detection is two signals at once, so neither alone can lie:
+ *   - the page text contains "offline" (the official Twitch / Kick
+ *     offline screen says the channel is offline), AND
+ *   - there is NO playing <video> (readyState >= 2, currentTime > 0,
+ *     not paused, not ended).
+ * A live stream has a playing video, so it reads LIVE even if the
+ * word "offline" appears somewhere in the page text. A loading /
+ * buffering stream has no playing video yet but also no offline
+ * text, so it reads UNKNOWN — never a skip. Only offline-text AND
+ * no playing video reads OFFLINE. The dock debounces that for ~3
+ * seconds before it skips. */
+static const char *kOfflineProbeJs = R"JS(
+(function(){
+  try{
+    var txt = (document.body ? document.body.innerText : '') || '';
+    var off = /offline/i.test(txt);
+    var live = false;
+    var vs = document.querySelectorAll('video');
+    for (var i = 0; i < vs.length; i++) {
+      var v = vs[i];
+      if (v && v.readyState >= 2 && v.currentTime > 0 && !v.paused && !v.ended) { live = true; break; }
+    }
+    var state = (!live && off) ? 'OFFLINE' : (live ? 'LIVE' : 'UNKNOWN');
+    window.__showerProbeN = (window.__showerProbeN || 0) + 1;
+    document.title = 'SHOWER:' + state + ':' + window.__showerProbeN;
+  }catch(e){}
+})();
+)JS";
+
+const int SCREEN_OFFLINE_DEBOUNCE_TICKS = 3; /* ~3 seconds at the 1s dock tick */
 
 QString cacheKey(const ShowerEntry &e)
 {
@@ -410,10 +478,12 @@ void showerApplySettings(ShowerData *d, obs_data_t *settings)
 	const char *cid = obs_data_get_string(settings, "twitch_client_id");
 	const char *tok = obs_data_get_string(settings, "twitch_token");
 	bool audioOn = obs_data_get_bool(settings, "audio_on");
+	bool screenWatch = obs_data_get_bool(settings, "screen_watch");
 	{
 		std::lock_guard<std::mutex> lock(g_state.mutex);
 		g_state.entries = entries;
 		g_state.audioOn = audioOn;
+		g_state.screenWatch = screenWatch;
 		g_state.twitchClientId = cid ? QString::fromUtf8(cid) : QString();
 		g_state.twitchToken = tok ? QString::fromUtf8(tok) : QString();
 		if (g_state.current >= (int)g_state.entries.size())
@@ -505,6 +575,9 @@ static void shower_get_defaults(obs_data_t *settings)
 	/* Muted by default: other streams' audio never goes out to
 	 * viewers unless sir turns "Play audio from the current stream" on. */
 	obs_data_set_default_bool(settings, "audio_on", false);
+	/* Offline-screen watch on by default: it is the skip path that
+	 * works without Twitch Helix credentials. */
+	obs_data_set_default_bool(settings, "screen_watch", true);
 }
 
 static void shower_video_render(void *data, gs_effect_t *)
@@ -684,9 +757,15 @@ static obs_properties_t *shower_get_properties(void *data)
 			       "Only show streams you have permission to rebroadcast / "
 			       "co-stream with. The Shower is MUTED by default — turn on "
 			       "'Play audio from the current stream' below to unmute only "
-			       "the link playing now.",
+			       "the link playing now. 'Watch for the offline screen' "
+			       "below also skips a link when the official Twitch / Kick "
+			       "offline screen shows for ~3 seconds — that is the skip "
+			       "that works even without Twitch Helix credentials.",
 		OBS_TEXT_INFO);
 	(void)info;
+
+	obs_properties_add_bool(props, "screen_watch",
+				"Watch for the offline screen (skip when the official Twitch / Kick offline screen shows for ~3 seconds)");
 
 	obs_properties_add_bool(props, "audio_on",
 				"Play audio from the current stream (unmute this link only — off = muted)");
@@ -766,6 +845,12 @@ class StreamWatcherDock : public QWidget {
 	QCefWidget *web = nullptr;
 	QCef *cef = nullptr;
 	int tickCount = 0;
+	/* Offline-screen watch state: the probe reports back through
+	 * document.title ("SHOWER:OFFLINE/LIVE/UNKNOWN:<n>"). Ticks
+	 * count consecutive 1-second probes that reported OFFLINE for
+	 * the entry named in screenKey; at 3 the dock skips. */
+	int screenOfflineTicks = 0;
+	QString screenKey; /* "twitch:name" the ticks belong to */
 
 public:
 	StreamWatcherDock(QWidget *parent = nullptr) : QWidget(parent)
@@ -801,6 +886,15 @@ public:
 			if (startUrl.empty())
 				startUrl = "https://player.twitch.tv/?channel=kaicenat&parent=localhost&autoplay=true&muted=false";
 			web = cef->create_widget(this, startUrl);
+			/* Offline-screen probe, two ways in: as the startup
+			 * script it runs on every page load, and the 1-second
+			 * tick below re-runs it while the stream is playing,
+			 * so a stream that goes offline mid-play is caught
+			 * without a reload. The probe reports back through
+			 * document.title — see onPageTitle(). */
+			web->setStartupScript(kOfflineProbeJs);
+			connect(web, &QCefWidget::titleChanged, this,
+				[this](const QString &title) { onPageTitle(title); });
 		}
 		if (web) {
 			layout->addWidget(web, 1);
@@ -854,12 +948,90 @@ private:
 		QString liveNote;
 		if (!entryIsLive(e))
 			liveNote = " — offline, will skip";
+		else if (screenOfflineTicks > 0)
+			liveNote = QString(" — offline screen seen (%1/3)").arg(screenOfflineTicks);
 		status->setText(QString("Now: #%1 %2 — switches in %3:%4%5")
 					.arg(current + 1)
 					.arg(displayName(e))
 					.arg(left / 60)
 					.arg(left % 60, 2, 10, QChar('0'))
 					.arg(liveNote));
+	}
+
+	/* The offline-screen probe reports back through the page title:
+	 * "SHOWER:OFFLINE:<n>" / "SHOWER:LIVE:<n>" / "SHOWER:UNKNOWN:<n>".
+	 * Anything else is the player's own title — ignore it.
+	 * OFFLINE ticks only count while the same entry is still playing;
+	 * a switch (timer, Prev/Next, API skip) resets them. LIVE is a
+	 * definite observation of a playing video, so it is cached LIVE
+	 * the same way the API result is — that also feeds the
+	 * skip-if-offline check. UNKNOWN (loading / buffering) resets
+	 * the count but never skips. At 3 straight OFFLINE ticks (~3s)
+	 * the dock skips, exactly like the API path: the entry is cached
+	 * OFFLINE and advanceToNext() lands on the next live link. */
+	void onPageTitle(const QString &title)
+	{
+		if (!title.startsWith("SHOWER:"))
+			return;
+		QStringList parts = title.split(':');
+		if (parts.size() < 2)
+			return;
+		QString state = parts[1];
+		ShowerEntry current;
+		bool haveCurrent = false;
+		{
+			std::lock_guard<std::mutex> lock(g_state.mutex);
+			if (!g_state.entries.empty() && g_state.current >= 0 &&
+			    g_state.current < (int)g_state.entries.size()) {
+				current = g_state.entries[(size_t)g_state.current];
+				haveCurrent = true;
+			}
+		}
+		if (!haveCurrent)
+			return;
+		QString key = cacheKey(current);
+		if (state == "LIVE") {
+			screenOfflineTicks = 0;
+			std::lock_guard<std::mutex> lock(g_state.mutex);
+			g_state.liveCache[key] = LiveCache{
+				LiveCache::Status::LIVE,
+				QDateTime::currentMSecsSinceEpoch()};
+			return;
+		}
+		if (state != "OFFLINE") {
+			/* UNKNOWN: loading / buffering — reset, never skip. */
+			screenOfflineTicks = 0;
+			return;
+		}
+		if (screenKey != key) {
+			screenKey = key;
+			screenOfflineTicks = 0;
+		}
+		screenOfflineTicks++;
+		if (screenOfflineTicks >= SCREEN_OFFLINE_DEBOUNCE_TICKS)
+			skipCurrentForOfflineScreen(key);
+	}
+
+	void skipCurrentForOfflineScreen(const QString &key)
+	{
+		{
+			std::lock_guard<std::mutex> lock(g_state.mutex);
+			g_state.liveCache[key] = LiveCache{
+				LiveCache::Status::OFFLINE,
+				QDateTime::currentMSecsSinceEpoch()};
+		}
+		blog(LOG_INFO, "Stream Shower: offline screen seen for %s, skipping to next link",
+		     key.toUtf8().constData());
+		screenOfflineTicks = 0;
+		screenKey.clear();
+		advanceToNext();
+		applyUrlToBrowser();
+		{
+			std::lock_guard<std::mutex> lock(g_state.mutex);
+			if (!g_state.entries.empty())
+				setWebUrl(playerUrl(g_state.entries[(size_t)g_state.current], false));
+		}
+		refreshStatus();
 	}
 
 	void onJump(int dir)
@@ -869,6 +1041,8 @@ private:
 			std::lock_guard<std::mutex> lock(g_state.mutex);
 			target = g_state.current + dir;
 		}
+		screenOfflineTicks = 0;
+		screenKey.clear();
 		jumpTo(target);
 		applyUrlToBrowser();
 		{
@@ -884,9 +1058,11 @@ private:
 		tickCount++;
 		bool switched = false;
 		bool needApply = false;
+		bool screenWatch = true;
 		{
 			std::lock_guard<std::mutex> lock(g_state.mutex);
 			needApply = g_state.needsApply;
+			screenWatch = g_state.screenWatch;
 			if (!g_state.entries.empty()) {
 				g_state.elapsed += 1.0;
 				const ShowerEntry &e = g_state.entries[(size_t)g_state.current];
@@ -898,17 +1074,28 @@ private:
 			}
 		}
 		if (switched) {
+			screenOfflineTicks = 0;
+			screenKey.clear();
 			advanceToNext();
 			applyUrlToBrowser();
 			std::lock_guard<std::mutex> lock(g_state.mutex);
 			if (!g_state.entries.empty())
 				setWebUrl(playerUrl(g_state.entries[(size_t)g_state.current], false));
 		} else if (needApply) {
+			screenOfflineTicks = 0;
+			screenKey.clear();
 			applyUrlToBrowser();
 			std::lock_guard<std::mutex> lock(g_state.mutex);
 			if (!g_state.entries.empty())
 				setWebUrl(playerUrl(g_state.entries[(size_t)g_state.current], false));
 		}
+		/* Offline-screen probe, once a second, in the dock's own
+		 * player (same URL the source is showing). The probe sets
+		 * document.title; the dock reads it back in onPageTitle().
+		 * Runs even when the dock is hidden — the timer keeps
+		 * ticking. Skipped only if sir turned the watch off. */
+		if (screenWatch && web)
+			web->executeJavaScript(kOfflineProbeJs);
 		refreshStatus();
 		/* Offline pre-check every 30 seconds: the next two links, so
 		 * the auto-switch can skip an offline one without a pause. */
