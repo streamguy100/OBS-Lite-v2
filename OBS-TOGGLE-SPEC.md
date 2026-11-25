@@ -212,6 +212,31 @@ timer is the switcher (it runs even when the dock is hidden).
    turns on "Play audio from the current stream", which unmutes only
    the link playing now. The Watcher dock (his own monitoring) is
    not muted.
+2. **Offline-screen watch (added 2026-11-25, sir)** — the Watcher
+   dock also watches the player IT is showing for the official
+   Twitch / Kick offline screen, and when that screen shows it
+   triggers the same skip. This is the skip that works WITHOUT
+   Helix credentials: a Twitch link with no credentials can still
+   be skipped once its offline screen is actually seen. How: a
+   DOM / JS probe runs once a second in the dock's player page
+   (and as the startup script on every page load, so a stream that
+   goes offline mid-play is caught without a reload). It reports
+   OFFLINE only when the page text contains "offline" AND there is
+   no playing `<video>`; a live stream reads LIVE (playing video),
+   a loading / buffering stream reads UNKNOWN (never a skip). The
+   probe reports back by setting `document.title` to
+   `SHOWER:<state>:<n>` — the only return channel the OBS
+   browser-panel API gives (`executeJavaScript` is fire-and-forget,
+   `titleChanged` is the signal). The offline screen must be
+   present for ~3 seconds straight before it skips, so a brief
+   buffering / loading screen never false-triggers. Either trigger
+   (API says offline OR offline screen seen) causes the same skip,
+   and a LIVE probe result is cached LIVE the same way an API
+   result is. Toggleable in the source properties ("Watch for the
+   offline screen", on by default). It watches the dock's player —
+   the source's private browser_source has no JS API OBS exposes
+   to a plugin, so the dock (same player URL) is the only place
+   the page can be probed.
 2. **Next / Previous buttons** in the dock — jump early without
    waiting for the timer.
 3. **Countdown in the dock** — "Now: #2 kaicenat (twitch) — switches
@@ -230,8 +255,15 @@ timer is the switcher (it runs even when the dock is hidden).
   parent=localhost. If Twitch ever shows a "refused to connect" page,
   that is the embed parent check, not the shower.
 - Offline detection uses official APIs only (see above). Without
-  Twitch Helix credentials, Twitch links cannot be checked: they
-  still play on sir's timer, they are just never auto-skipped.
+  Twitch Helix credentials, Twitch links cannot be checked by the
+  API: they still play on sir's timer, they are just never
+  auto-skipped by the API path — the offline-screen watch is the
+  path that skips them, once the official offline screen is seen
+  for ~3 seconds. If Twitch / Kick change their offline screen
+  layout or wording, the probe's text match may need updating; the
+  API check keeps working regardless. If OBS / CEF throttles the
+  dock while it is hidden, the screen watch may be delayed — the
+  API check still runs on its own timer.
   Login-gated / subscriber-only streams need the user signed in
   inside OBS's browser (cookies are shared with the CEF browser,
   same as any Browser Source).
