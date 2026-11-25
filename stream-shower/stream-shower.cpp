@@ -192,6 +192,7 @@ static ShowerState g_state;
  * seconds before it skips. */
 static const char *kOfflineProbeJs = R"JS(
 (function(){
+  // Probe reports document.title as SHOWER:OFFLINE:<n>, SHOWER:LIVE:<n> or SHOWER:UNKNOWN:<n>
   try{
     var txt = (document.body ? document.body.innerText : '') || '';
     var off = /offline/i.test(txt);
