@@ -203,6 +203,12 @@ jobs:
           if (-not (Test-Path "$core/stream-shower/data/locale/en-US.ini")) { throw "Toggle check FAILED: stream-shower locale data missing at core/stream-shower/data/locale/en-US.ini" }
           if (-not (Test-Path "$core/obs-webrtc/data/locale/en-US.ini")) { throw "Toggle check FAILED: obs-webrtc locale data missing at core/obs-webrtc/data/locale/en-US.ini" }
           if (Test-Path "$core/stinger-maker") { throw "Toggle check FAILED: stinger-maker is in the build - it is NOT in this fork" }
+          # Offline-screen watch: the probe marker must be compiled
+          # into stream-shower.dll, or the Watcher dock cannot report
+          # the offline screen back.
+          $showerDll = "$core/stream-shower/stream-shower.dll"
+          $probe = findstr /M /C:"SHOWER:OFFLINE" $showerDll
+          if ($LASTEXITCODE -ne 0) { throw "Toggle check FAILED: stream-shower.dll has no SHOWER:OFFLINE probe marker - offline-screen watch did not build in" }
           # PS5 Lite run #6: obs64.exe would not start on sir's PC -
           # avcodec-62.dll links libx264-164.dll at load time, but
           # cmake --install never copies it into install/bin/64bit
