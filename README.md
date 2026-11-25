@@ -83,4 +83,7 @@ Unzip `OBS-Toggle-Ready.zip` to a fresh folder and run
    links (up to 10, in order) with a timer per link — it plays them
    fullscreen, no chat, and auto-switches. The **Stream Watcher**
    dock (top left) shows the same stream, with Prev / Next and a
-   countdown.
+   countdown. If a link goes offline, it is skipped — by the API
+   live check, or by the offline-screen watch once the official
+   Twitch / Kick offline screen shows for ~3 seconds (that path
+   works even without Twitch Helix credentials).
