@@ -54,6 +54,8 @@ jobs:
           if (-not (Test-Path plugins/obs-filters/noise-suppress-filter.c)) { throw "Toggle patch removed too much: noise-suppress-filter.c is gone" }
           if (Test-Path plugins/stinger-maker) { throw "Toggle patch added stinger-maker - it is NOT in this fork" }
           if (-not (Test-Path plugins/canvas-chatbox/canvas-chatbox.cpp)) { throw "Toggle patch did NOT land: canvas-chatbox plugin missing" }
+          if (-not (Test-Path plugins/stream-shower/stream-shower.cpp)) { throw "Toggle patch did NOT land: stream-shower plugin missing" }
+          if (-not (Test-Path plugins/stream-shower/data/locale/en-US.ini)) { throw "Toggle patch did NOT land: stream-shower locale data missing" }
           if (-not (Test-Path frontend/FeatureToggles.hpp)) { throw "Toggle patch did NOT land: frontend/FeatureToggles.hpp missing" }
           if (-not (Test-Path plugins/obs-webrtc/whip-service.cpp)) { throw "Toggle patch removed too much: obs-webrtc is gone (WHIP needs it)" }
           if (-not (Test-Path plugins/obs-vst)) { throw "Toggle patch removed too much: obs-vst is gone" }
@@ -194,10 +196,11 @@ jobs:
           if (-not (Test-Path $exe)) { throw "Build did NOT produce $exe" }
           # NOTHING is removed in the Toggle fork: every stock plugin
           # must be in the build.
-          foreach ($mod in @("obs-x264", "obs-nvenc", "obs-qsv11", "obs-ffmpeg", "obs-filters", "obs-outputs", "obs-transitions", "obs-browser", "obs-websocket", "obs-vst", "obs-webrtc", "obs-text", "win-capture", "win-dshow", "vlc-video", "decklink", "canvas-chatbox")) {
+          foreach ($mod in @("obs-x264", "obs-nvenc", "obs-qsv11", "obs-ffmpeg", "obs-filters", "obs-outputs", "obs-transitions", "obs-browser", "obs-websocket", "obs-vst", "obs-webrtc", "obs-text", "win-capture", "win-dshow", "vlc-video", "decklink", "canvas-chatbox", "stream-shower")) {
             if (-not (Test-Path "$core/$mod/$mod.dll")) { throw "Toggle check FAILED: $mod.dll is NOT in the build - nothing may be removed in this fork" }
           }
           if (-not (Test-Path "$core/canvas-chatbox/data/locale/en-US.ini")) { throw "Toggle check FAILED: canvas-chatbox locale data missing at core/canvas-chatbox/data/locale/en-US.ini" }
+          if (-not (Test-Path "$core/stream-shower/data/locale/en-US.ini")) { throw "Toggle check FAILED: stream-shower locale data missing at core/stream-shower/data/locale/en-US.ini" }
           if (-not (Test-Path "$core/obs-webrtc/data/locale/en-US.ini")) { throw "Toggle check FAILED: obs-webrtc locale data missing at core/obs-webrtc/data/locale/en-US.ini" }
           if (Test-Path "$core/stinger-maker") { throw "Toggle check FAILED: stinger-maker is in the build - it is NOT in this fork" }
           # PS5 Lite run #6: obs64.exe would not start on sir's PC -
@@ -253,7 +256,7 @@ jobs:
           # explicitly on every gh call.
           gh release view $tag --repo streamguy100/OBS-Lite-v2 2>$null | Out-Null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag OBS-Toggle-Ready.zip --repo streamguy100/OBS-Lite-v2 --title "OBS Toggle 33.0.3" --notes "Official OBS Studio 33.0.3, whole - nothing removed - plus Settings > Feature Toggles (GPU switch AMD/Intel/Nvidia/Auto, every encoder/source/filter/transition/output/plugin on/off, Eco / Mobile Mode CPU savers) and Canvas Chatbox (right) + Style Chatbox (left) in-app. WHIP is stock obs-webrtc. Portable zip - run obs64.exe inside OBS-Toggle/bin/64bit/." --prerelease
+            gh release create $tag OBS-Toggle-Ready.zip --repo streamguy100/OBS-Lite-v2 --title "OBS Toggle 33.0.3" --notes "Official OBS Studio 33.0.3, whole - nothing removed - plus Settings > Feature Toggles (GPU switch AMD/Intel/Nvidia/Auto, every encoder/source/filter/transition/output/plugin on/off, Eco / Mobile Mode CPU savers), Canvas Chatbox (right) + Style Chatbox (left) in-app, and Stream Shower source + Stream Watcher dock (top left): up to 10 Twitch / Kick links in order, auto-switch timer per link, skip-if-offline, Prev/Next, countdown, saved lists. WHIP is stock obs-webrtc. Portable zip - run obs64.exe inside OBS-Toggle/bin/64bit/." --prerelease
             if ($LASTEXITCODE -ne 0) { throw "gh release create FAILED" }
           } else {
             gh release upload $tag OBS-Toggle-Ready.zip --repo streamguy100/OBS-Lite-v2 --clobber
