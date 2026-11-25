@@ -1,60 +1,75 @@
-# OBS Lite v2
+# OBS Toggle — build
 
-Light OBS Studio for Windows, built from the official OBS code.
+Official OBS Studio 33.0.3, whole, plus Settings > Feature Toggles
+(GPU switch, Eco / Mobile Mode CPU savers) and the Canvas Chatbox +
+Style Chatbox plugin. No removals, no Stinger Maker. Full spec:
+`OBS-TOGGLE-SPEC.md`.
 
-Base: obsproject/obs-studio, tag 33.0.1, commit `65c320b46e1af5c7a555161aea6182cdf7a8c524`.
-License: GPL-2.0, see the upstream COPYING.
+## Files in this folder
 
-## What it is
+- `apply-toggle-patch.py` — applies the patch to a pristine upstream
+  33.0.3 tree. Fails loudly if any anchor is missing; refuses to run
+  twice on the same tree.
+- `FeatureToggles.hpp` — the one toggle table (copied into
+  `frontend/` by the patch script).
+- `canvas-chatbox/` — the chatbox plugin (copied into `plugins/` by
+  the patch script).
+- `build-obs-toggle.yml` — GitHub Actions workflow (Windows x64).
+  Lives in `.github/workflows/` on the `official-toggle` branch.
+- `OBS-TOGGLE-SPEC.md` — the locked spec.
 
-Streaming + canvas only. Everything that is a super CPU user is removed.
-Canvas stuff is untouched.
+## Build it (CI, the real route)
 
-## Kept
+1. Push this folder's source files to branch `official-toggle` in
+   `streamguy100/OBS-Lite-v2` (patch script, spec, README, header,
+   canvas-chatbox).
+2. Push `build-obs-toggle.yml` to `.github/workflows/` on the same
+   branch (via the browser — the API route 403s on workflow files).
+3. The workflow clones upstream OBS 33.0.3 (HEAD pinned:
+   `f2aa9ce69caa7239ef26660b5889de4f53d9880e`), inits the
+   obs-browser / obs-websocket / libdshowcapture submodules, runs
+   `apply-toggle-patch.py`, applies the ATL header copy fix, builds
+   with `Build-Windows.ps1` (RelWithDebInfo, x64), verifies nothing
+   was removed and the toggle code is present, restores the two
+   runtime DLLs cmake --install does not copy (`libx264-164.dll`,
+   `datachannel.dll`), and zips the install tree as
+   `OBS-Toggle-Ready.zip` (obs64.exe at
+   `OBS-Toggle/bin/64bit/obs64.exe`).
+4. The workflow also publishes GitHub release tag
+   `v33.0.3-obs-toggle` with the zip.
 
-Streaming: Custom RTMP only (obs-outputs + obs-ffmpeg + rtmp-services),
-hardware encoders only — NVENC (NVIDIA), QuickSync / QSV (Intel), AMF (AMD).
-Audio mixer, Mic + Desktop audio, Stream / Video / Audio / Output settings,
-Canvas (Base) and Output (Scaled) sizes separate.
+## Test the patch locally (no C++ compile on this VM)
 
-Canvas, untouched: Display, Window, Game Capture, Webcam, Image,
-Browser Source, Text (FreeType), Media Source, Colour, Mic / Desktop audio.
+```sh
+git clone --depth 1 --branch 33.0.3 https://github.com/obsproject/obs-studio.git upstream
+python3 apply-toggle-patch.py upstream
+```
 
-Light filters only: Crop, Scale, Colour Correction, Colour Grade,
-Colour Key, Luma Key, Chroma Key, Gain, Compressor, Limiter, Expander,
-Noise Gate, EQ, Invert Polarity.
+Expected: exit 0, ending with `TOGGLE PATCH OK`. Then check:
 
-## Removed
+```sh
+test -d upstream/plugins/obs-x264 && echo "x264 kept"
+test -d upstream/plugins/vlc-video && echo "vlc kept"
+test -d upstream/plugins/decklink && echo "decklink kept"
+test ! -e upstream/plugins/stinger-maker && echo "no stinger maker"
+grep -c "obs_add_disabled_feature" upstream/libobs/obs-module.c
+```
 
-- obs-x264 — software x264 encoder, the biggest CPU hog
-- obs-ffmpeg-openh264.c — software OpenH264 encoder
-- obs-text — old GDI text, duplicate of FreeType text
-- Noise Suppression (RNNoise neural + SpeexDSP)
-- HDR Tonemap, SDR-on-HDR
-- Mask, Scroll, Sharpness, GPU Delay, Async Delay filters
-- Scripting (Lua / Python) — ENABLE_SCRIPTING OFF
-- Plus the v1 removals: DeckLink / AJA, Linux / mac capture, VST, WebSocket,
-  WebRTC, VLC, transitions, frontend-tools, libobs-metal, test/
+No local C++ compile is possible on this VM (no MSVC/Windows
+toolchain), so the compile check happens in CI — the workflow fails
+the run if the build breaks.
 
-12 plugins left: image-source, obs-browser, obs-ffmpeg, obs-filters,
-obs-nvenc, obs-outputs, obs-qsv11, rtmp-services, text-freetype2,
-win-capture, win-dshow, win-wasapi.
+## Run it (after the CI zip lands)
 
-## How the build works
+Unzip `OBS-Toggle-Ready.zip` to a fresh folder and run
+`OBS-Toggle/bin/64bit/obs64.exe`. First checks:
 
-`.github/workflows/build-obs-lite-v2.yml` clones upstream OBS 33.0.1,
-runs `strip-lite-v2.py` on it (fail loudly if any step fails, verifies
-exactly 12 plugins remain), then runs upstream's own
-`.github/scripts/Build-Windows.ps1`, verifies no x264 / noise-suppress
-files are in the install folder, and uploads `OBS-Lite-v2.zip` + `obs64.exe`.
-
-## Honest limits
-
-- No software encoder left. If a PC has no hardware encoder
-  (no NVENC, no Intel QuickSync, no AMD AMF), this build cannot encode.
-  Intel graphics PCs should have QuickSync — pick Encoder: QuickSync H.264.
-- The OBS frontend is kept intact. Studio Mode etc. are still in the code,
-  just do not use them. Use Scenes, Sources, Mixer, Controls, and
-  Settings > Stream / Video / Audio / Output only.
-- Virtual Camera still needs its separate admin driver install from
-  win-dshow/virtualcam-module.
+1. Settings opens without crashing (even with encoders toggled off).
+2. Settings has a **Feature Toggles** page at the bottom of the list,
+   GPU switch at the top, all toggles ON by default.
+3. Turn a toggle OFF (e.g. VLC Video Source), Apply → OBS restarts
+   by itself in normal mode, no Safe Mode prompt, and the thing is
+   gone from the Sources menu.
+4. Canvas Chatbox dock is right of the canvas, Style Chatbox on the
+   left (View > Docks if hidden).
+5. Settings > Stream > Service offers WHIP (obs-webrtc, stock).
