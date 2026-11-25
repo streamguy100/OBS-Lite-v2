@@ -117,6 +117,7 @@ static const OBSFeatureToggle obs_feature_toggles[] = {
 	{"coreaudio-encoder", "CoreAudio AAC (macOS)", "Plugins", true, nullptr},
 	{"nv-filters", "NVIDIA Audio/Video Effects", "Plugins", true, nullptr},
 	{"frontend-tools", "Scripts / Frontend Tools", "Plugins", true, nullptr},
+	{"stream-shower", "Stream Shower + Watcher (stream-shower)", "Plugins", true, nullptr},
 };
 /* clang-format on */
 

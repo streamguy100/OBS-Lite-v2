@@ -15,8 +15,9 @@ What it does (see OBS-TOGGLE-SPEC.md for the full spec):
     Settings-crash null-guards (adapted: nothing is removed here, so
     x264 stays a valid fallback when it is available).
   * plugins: add canvas-chatbox (Canvas Chatbox right + Style Chatbox
-    left) as a core module. NOTHING is removed — official OBS 33.0.3
-    stays whole: x264, VLC, DeckLink, all encoders/sources/filters.
+    left) and stream-shower (Stream Shower source + Stream Watcher
+    dock, top left) as core modules. NOTHING is removed — official OBS
+    33.0.3 stays whole: x264, VLC, DeckLink, all encoders/sources/filters.
 
 Fails loudly (non-zero exit) if any anchor text is not found, so a
 silent no-op patch is impossible. Run it against a fresh upstream
@@ -1475,6 +1476,39 @@ def patch_canvas_chatbox():
     print("copied plugins/canvas-chatbox (Canvas Chatbox right + Style Chatbox left)")
 
 
+def patch_stream_shower():
+    src = SCRIPT_DIR / "stream-shower"
+    if not src.is_dir():
+        fail("stream-shower plugin missing next to patch script")
+    dst = ROOT / "plugins/stream-shower"
+    if dst.exists():
+        shutil.rmtree(dst)
+    shutil.copytree(src, dst)
+    for rel in ("CMakeLists.txt", "stream-shower.cpp",
+                "data/locale/en-US.ini", "cmake/windows/obs-module.rc.in"):
+        must_exist(f"plugins/stream-shower/{rel}")
+    # Register as a core module AFTER check_obs_browser(): this plugin
+    # links OBS::browser-panels (OBS's own CEF browser widget, the
+    # same API OBS's BrowserDock uses), and that target only exists
+    # once obs-browser's CMakeLists has run. Registering it earlier
+    # (e.g. next to canvas-chatbox) would fail configure with
+    # "target OBS::browser-panels not found".
+    # OBS 33 only loads core modules on the hardcoded list built into
+    # obs.dll — a hand-dropped DLL is never loaded, which is why this
+    # registration matters.
+    replace_text(
+        "plugins/CMakeLists.txt",
+        "check_obs_browser()\n",
+        "check_obs_browser()\nadd_core_module(stream-shower)\n",
+    )
+    shower_cmake = read("plugins/stream-shower/CMakeLists.txt")
+    if "add_library(stream-shower MODULE)" not in shower_cmake:
+        fail("plugins/stream-shower/CMakeLists.txt has no MODULE_LIBRARY target")
+    if "OBS::browser-panels" not in shower_cmake:
+        fail("plugins/stream-shower/CMakeLists.txt does not link OBS::browser-panels (Watcher dock needs it)")
+    print("copied plugins/stream-shower (Stream Shower source + Watcher dock, top left)")
+
+
 # ----------------------------------------------------------------------
 # verify + main
 # ----------------------------------------------------------------------
@@ -1502,6 +1536,7 @@ def verify_no_removals():
         "plugins/obs-nvenc",
         "plugins/obs-qsv11",
         "plugins/canvas-chatbox/canvas-chatbox.cpp",
+        "plugins/stream-shower/stream-shower.cpp",
         "frontend/FeatureToggles.hpp",
     ):
         must_exist(rel)
@@ -1518,6 +1553,10 @@ def verify_no_removals():
         ("PreviewOffWhileLiveStart", "frontend/widgets/OBSBasic.cpp"),
         ("StreamingActive() || outputHandler->RecordingActive()", "frontend/widgets/OBSBasic_Updater.cpp"),
         ("add_core_module(canvas-chatbox)", "plugins/CMakeLists.txt"),
+        ("add_core_module(stream-shower)", "plugins/CMakeLists.txt"),
+        ("stream-shower", "frontend/FeatureToggles.hpp"),
+        ("obs_browser_init_panel", "plugins/stream-shower/stream-shower.cpp"),
+        ("stream_shower", "plugins/stream-shower/stream-shower.cpp"),
     ):
         if needle not in read(rel):
             fail(f"verify: {needle!r} missing from {rel}")
@@ -1569,8 +1608,9 @@ def main():
     patch_updater()
     patch_settings_crash_guards()
     patch_canvas_chatbox()
+    patch_stream_shower()
     verify_no_removals()
-    print("TOGGLE PATCH OK: official OBS 33.0.3 + Feature Toggles + canvas-chatbox, nothing removed")
+    print("TOGGLE PATCH OK: official OBS 33.0.3 + Feature Toggles + canvas-chatbox + stream-shower, nothing removed")
 
 
 if __name__ == "__main__":

@@ -1,8 +1,9 @@
 # OBS Toggle — build
 
 Official OBS Studio 33.0.3, whole, plus Settings > Feature Toggles
-(GPU switch, Eco / Mobile Mode CPU savers) and the Canvas Chatbox +
-Style Chatbox plugin. No removals, no Stinger Maker. Full spec:
+(GPU switch, Eco / Mobile Mode CPU savers), the Canvas Chatbox +
+Style Chatbox plugin, and the Stream Shower source + Stream Watcher
+dock. No removals, no Stinger Maker. Full spec:
 `OBS-TOGGLE-SPEC.md`.
 
 ## Files in this folder
@@ -11,9 +12,14 @@ Style Chatbox plugin. No removals, no Stinger Maker. Full spec:
   33.0.3 tree. Fails loudly if any anchor is missing; refuses to run
   twice on the same tree.
 - `FeatureToggles.hpp` — the one toggle table (copied into
-  `frontend/` by the patch script).
+  `frontend/` by the patch script). Now 62 entries — Stream Shower
+  is toggleable under Plugins.
 - `canvas-chatbox/` — the chatbox plugin (copied into `plugins/` by
   the patch script).
+- `stream-shower/` — the Stream Shower source + Stream Watcher dock
+  (copied into `plugins/` by the patch script, registered as a core
+  module after `check_obs_browser()` because it links
+  `OBS::browser-panels`).
 - `build-obs-toggle.yml` — GitHub Actions workflow (Windows x64).
   Lives in `.github/workflows/` on the `official-toggle` branch.
 - `OBS-TOGGLE-SPEC.md` — the locked spec.
@@ -22,7 +28,7 @@ Style Chatbox plugin. No removals, no Stinger Maker. Full spec:
 
 1. Push this folder's source files to branch `official-toggle` in
    `streamguy100/OBS-Lite-v2` (patch script, spec, README, header,
-   canvas-chatbox).
+   canvas-chatbox, stream-shower).
 2. Push `build-obs-toggle.yml` to `.github/workflows/` on the same
    branch (via the browser — the API route 403s on workflow files).
 3. The workflow clones upstream OBS 33.0.3 (HEAD pinned:
@@ -73,3 +79,8 @@ Unzip `OBS-Toggle-Ready.zip` to a fresh folder and run
 4. Canvas Chatbox dock is right of the canvas, Style Chatbox on the
    left (View > Docks if hidden).
 5. Settings > Stream > Service offers WHIP (obs-webrtc, stock).
+6. Add a **Stream Shower** source to a scene: put in Twitch / Kick
+   links (up to 10, in order) with a timer per link — it plays them
+   fullscreen, no chat, and auto-switches. The **Stream Watcher**
+   dock (top left) shows the same stream, with Prev / Next and a
+   countdown.

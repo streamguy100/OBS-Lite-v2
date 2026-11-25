@@ -16,6 +16,14 @@ Base: OBS Studio 33.0.3 (`f2aa9ce69caa7239ef26660b5889de4f53d9880e`).
   (`plugins/canvas-chatbox`, same as PS5 Lite): Canvas Chatbox docked
   right of the canvas, Style Chatbox on the left. WHIP is already in
   official OBS (obs-webrtc) and stays.
+- **Stream Shower + Stream Watcher included** as a core module
+  (`plugins/stream-shower`): a "Stream Shower" source that shows up
+  to 10 Twitch / Kick streams in order, fullscreen, no chat, with a
+  timer per link and auto-switching; and a "Stream Watcher" dock,
+  top left, showing the exact same stream the source is showing,
+  with Prev / Next buttons and a countdown. See "Stream Shower"
+  below. Toggleable under Plugins in Feature Toggles (62 entries
+  now, was 61).
 - **NO Stinger Maker.**
 
 ## Settings > Feature Toggles
@@ -152,6 +160,86 @@ individually toggleable.
    only, never while streaming or recording. Upstream OBS 33 has no
    telemetry or crash reporting in this tree.
 
+## Stream Shower + Stream Watcher (added 2026-11-24, sir)
+
+One core module, `plugins/stream-shower`, two parts that work as one.
+
+### Stream Shower source
+
+Add it to a scene (Sources + > Stream Shower). It shows a Twitch or
+Kick stream fullscreen, no chat panel, in the stream output.
+
+- **Up to 10 links, Twitch or Kick only, in order 1–10.** A link can
+  be a full URL (`twitch.tv/kaicenat`, `kick.com/xqc`) or just a
+  channel name (`kaicenat`) — plain names use the "Default platform
+  for plain channel names" setting (Twitch or Kick). Empty links are
+  skipped.
+- **Timer per link** (1–180 minutes, default 10). Plays link 1 for
+  its timer, auto-switches to link 2, and so on, then loops back to
+  link 1.
+- **Players are the official embeds**: `player.twitch.tv` for Twitch
+  (parent=localhost, the standard OBS browser-source value),
+  `player.kick.com/<channel>` for Kick. No chat panel in either.
+- Internally the source owns a private child `browser_source` (the
+  same trick OBS's own Stinger transition uses) and renders it
+  fullscreen at 1920x1080.
+
+### Stream Watcher dock (top left)
+
+A dock in OBS, top left, for watching Twitch / Kick while streaming.
+It shows the EXACT same stream the source is showing, at the same
+time — when the source auto-switches, the dock switches with it. It
+uses OBS's own CEF browser widget (the `OBS::browser-panels` API,
+the same one OBS's BrowserDock uses), so it is a real player, not a
+screenshot. One shared playlist drives both; the dock's 1-second
+timer is the switcher (it runs even when the dock is hidden).
+
+### The five extras (all in)
+
+1. **Skip if offline** — before a link plays, the dock checks it
+   with OFFICIAL APIs only, never page scraping: Kick via its
+   public `api/v2/channels/<name>` endpoint (no login), Twitch via
+   Helix `/streams` (needs a Client ID + access token pasted in the
+   source properties, from dev.twitch.tv). A cached-offline link is
+   skipped for the next live one. Auto-switch only lands on a link
+   already checked LIVE, or on a link that cannot be checked at all
+   (Twitch without Helix credentials — it just plays on the timer).
+   An unchecked-but-checkable link is skipped this time and becomes
+   eligible on the next loop. It never auto-plays a stream the
+   second it goes live — switching happens only on sir's timer.
+   The Shower is MUTED by default (player muted + source volume 0),
+   so other streams' audio never goes out to viewers unless sir
+   turns on "Play audio from the current stream", which unmutes only
+   the link playing now. The Watcher dock (his own monitoring) is
+   not muted.
+2. **Next / Previous buttons** in the dock — jump early without
+   waiting for the timer.
+3. **Countdown in the dock** — "Now: #2 kaicenat (twitch) — switches
+   in 07:32", plus an offline note when the current link is cached
+   offline.
+4. **Channel name only** — see above.
+5. **Saved lists** — in the source properties: type a list name and
+   hit "Save this list" to save the current 10 links + timers; pick a
+   saved list from the "Saved list" dropdown to load it; "Delete
+   named list" removes one. Lists live in the source settings
+   (`saved_lists` array), so they travel with the scene collection.
+
+### Honest limits
+
+- Twitch embeds need a "parent" host; this build uses
+  parent=localhost. If Twitch ever shows a "refused to connect" page,
+  that is the embed parent check, not the shower.
+- Offline detection uses official APIs only (see above). Without
+  Twitch Helix credentials, Twitch links cannot be checked: they
+  still play on sir's timer, they are just never auto-skipped.
+  Login-gated / subscriber-only streams need the user signed in
+  inside OBS's browser (cookies are shared with the CEF browser,
+  same as any Browser Source).
+- The source properties carry a note: only show streams you have
+  permission to rebroadcast / co-stream with.
+- One Stream Shower source per scene collection is the supported
+  setup: the dock follows the most recently created source.
+
 ## Files
 
 - `apply-toggle-patch.py` — the patch. Run it against a fresh
@@ -162,6 +250,9 @@ individually toggleable.
   against OBS 33.0.3 registration code; unverified ids were left out
   rather than guessed.
 - `canvas-chatbox/` — the chatbox plugin, copied in as a core module.
+- `stream-shower/` — the Stream Shower source + Stream Watcher dock,
+  copied in as a core module (registered after `check_obs_browser()`
+  because it links `OBS::browser-panels`).
 - `build-obs-toggle.yml` — GitHub Actions workflow (Windows).
 - `README.md` — build/run instructions.
 
