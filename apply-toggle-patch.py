@@ -1506,6 +1506,11 @@ def patch_stream_shower():
         fail("plugins/stream-shower/CMakeLists.txt has no MODULE_LIBRARY target")
     if "OBS::browser-panels" not in shower_cmake:
         fail("plugins/stream-shower/CMakeLists.txt does not link OBS::browser-panels (Watcher dock needs it)")
+    if "AUTOMOC" not in shower_cmake:
+        fail("plugins/stream-shower/CMakeLists.txt has no AUTOMOC — "
+             "QCefWidget's moc (titleChanged/staticMetaObject) would not be "
+             "compiled into stream-shower.dll and the link fails with LNK2019/LNK2001 "
+             "(run 45653951425). See the AUTOMOC comment in that CMakeLists.txt.")
     print("copied plugins/stream-shower (Stream Shower source + Watcher dock, top left)")
 
 
