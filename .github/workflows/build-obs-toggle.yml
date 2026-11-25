@@ -205,10 +205,15 @@ jobs:
           if (Test-Path "$core/stinger-maker") { throw "Toggle check FAILED: stinger-maker is in the build - it is NOT in this fork" }
           # Offline-screen watch: the probe marker must be compiled
           # into stream-shower.dll, or the Watcher dock cannot report
-          # the offline screen back.
+          # the offline screen back. findstr cannot search DLLs
+          # reliably (a DLL's binary "lines" exceed findstr's line
+          # buffer, so it misses strings that are really there — this
+          # check failed runs 45657156968 and 45661707213 even though
+          # the marker is provably in the compiled object). Search the
+          # raw bytes instead.
           $showerDll = "$core/stream-shower/stream-shower.dll"
-          $probe = findstr /M /C:"SHOWER:OFFLINE" $showerDll
-          if ($LASTEXITCODE -ne 0) { throw "Toggle check FAILED: stream-shower.dll has no SHOWER:OFFLINE probe marker - offline-screen watch did not build in" }
+          $dllText = [System.Text.Encoding]::ASCII.GetString([System.IO.File]::ReadAllBytes($showerDll))
+          if ($dllText -notmatch "SHOWER:OFFLINE") { throw "Toggle check FAILED: stream-shower.dll has no SHOWER:OFFLINE probe marker - offline-screen watch did not build in" }
           # PS5 Lite run #6: obs64.exe would not start on sir's PC -
           # avcodec-62.dll links libx264-164.dll at load time, but
           # cmake --install never copies it into install/bin/64bit
