@@ -1,0 +1,262 @@
+name: Build OBS Toggle 33.0.3 Windows
+
+on:
+  push:
+    branches:
+      - official-toggle
+  workflow_dispatch:
+
+concurrency:
+  group: build-obs-toggle-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-windows:
+    name: "Build Windows x64 (OBS Toggle 33.0.3)"
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 300
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Clone upstream OBS Studio 33.0.3
+        shell: pwsh
+        run: |
+          git clone --depth 1 --branch 33.0.3 https://github.com/obsproject/obs-studio.git upstream
+          cd upstream
+          git rev-parse HEAD
+          if ((git rev-parse HEAD) -ne "f2aa9ce69caa7239ef26660b5889de4f53d9880e") { throw "Upstream HEAD is not f2aa9ce - wrong OBS version, stopping" }
+          git submodule update --init --recursive plugins/obs-browser plugins/obs-websocket deps/libdshowcapture/src
+          if ($LASTEXITCODE -ne 0) { throw "Submodule init failed with exit code $LASTEXITCODE" }
+          if (-not (Test-Path plugins/obs-browser/CMakeLists.txt)) { throw "obs-browser submodule missing" }
+          if (-not (Test-Path plugins/obs-websocket/CMakeLists.txt)) { throw "obs-websocket submodule missing" }
+          if (-not (Test-Path deps/libdshowcapture/src/external/capture-device-support/Library/EGAVResult.cpp)) { throw "libdshowcapture nested submodule missing" }
+
+      - name: Apply OBS Toggle patch
+        shell: pwsh
+        run: |
+          python apply-toggle-patch.py upstream
+          if ($LASTEXITCODE -ne 0) { throw "apply-toggle-patch.py FAILED with exit code $LASTEXITCODE - stopping the build" }
+          cd upstream
+          if (-not (Test-Path plugins/obs-x264)) { throw "Toggle patch removed too much: plugins/obs-x264 is gone (nothing is removed in this fork)" }
+          if (-not (Test-Path plugins/vlc-video)) { throw "Toggle patch removed too much: plugins/vlc-video is gone" }
+          if (-not (Test-Path plugins/decklink)) { throw "Toggle patch removed too much: plugins/decklink is gone" }
+          if (-not (Test-Path plugins/obs-ffmpeg/obs-ffmpeg-openh264.c)) { throw "Toggle patch removed too much: obs-ffmpeg-openh264.c is gone" }
+          if (-not (Test-Path plugins/obs-filters/noise-suppress-filter.c)) { throw "Toggle patch removed too much: noise-suppress-filter.c is gone" }
+          if (Test-Path plugins/stinger-maker) { throw "Toggle patch added stinger-maker - it is NOT in this fork" }
+          if (-not (Test-Path plugins/canvas-chatbox/canvas-chatbox.cpp)) { throw "Toggle patch did NOT land: canvas-chatbox plugin missing" }
+          if (-not (Test-Path frontend/FeatureToggles.hpp)) { throw "Toggle patch did NOT land: frontend/FeatureToggles.hpp missing" }
+          if (-not (Test-Path plugins/obs-webrtc/whip-service.cpp)) { throw "Toggle patch removed too much: obs-webrtc is gone (WHIP needs it)" }
+          if (-not (Test-Path plugins/obs-vst)) { throw "Toggle patch removed too much: obs-vst is gone" }
+          if (-not (Test-Path plugins/obs-transitions)) { throw "Toggle patch removed too much: obs-transitions is gone" }
+          if (-not (Test-Path plugins/obs-websocket)) { throw "Toggle patch removed too much: obs-websocket is gone" }
+          if (-not (Test-Path plugins/obs-text)) { throw "Toggle patch removed too much: obs-text (GDI) is gone" }
+          if (-not (Test-Path plugins/win-capture)) { throw "Toggle patch removed too much: win-capture is gone" }
+          if (-not (Test-Path plugins/win-dshow)) { throw "Toggle patch removed too much: win-dshow is gone" }
+          if (-not (Test-Path plugins/obs-browser)) { throw "Toggle patch removed too much: obs-browser is gone" }
+          if (-not (Test-Path plugins/obs-nvenc)) { throw "Toggle patch removed too much: obs-nvenc is gone" }
+          if (-not (Test-Path plugins/obs-qsv11)) { throw "Toggle patch removed too much: obs-qsv11 is gone" }
+          if (-not (Test-Path plugins/obs-ffmpeg)) { throw "Toggle patch removed too much: obs-ffmpeg is gone" }
+          if (-not (Test-Path plugins/obs-outputs)) { throw "Toggle patch removed too much: obs-outputs is gone" }
+          if (-not (Test-Path plugins/obs-filters)) { throw "Toggle patch removed too much: obs-filters is gone" }
+          Select-String -Path libobs/obs-module.c -Pattern "obs_add_disabled_feature" -Quiet | Out-Null
+          if (-not (Select-String -Path libobs/obs-module.c -Pattern "obs_add_disabled_feature" -Quiet)) { throw "Toggle patch did NOT land: obs_add_disabled_feature missing from libobs/obs-module.c" }
+          if (-not (Select-String -Path libobs/obs-source.c -Pattern "hidden_sources_sleep" -Quiet)) { throw "Toggle patch did NOT land: hidden_sources_sleep missing from libobs/obs-source.c" }
+          if (-not (Select-String -Path frontend/settings/OBSBasicSettings.cpp -Pattern "BuildTogglesPage" -Quiet)) { throw "Toggle patch did NOT land: BuildTogglesPage missing from OBSBasicSettings.cpp" }
+          if (-not (Select-String -Path frontend/widgets/OBSBasic.cpp -Pattern "CpuGuardDrop" -Quiet)) { throw "Toggle patch did NOT land: CpuGuardDrop missing from OBSBasic.cpp" }
+          Write-Host "Toggle patch verified: nothing removed, all toggle code present"
+
+      - name: Fix ATL headers (copy, no installer)
+        shell: pwsh
+        run: |
+          # Run #3 (45301275802, commit 66a374e) failed HERE in 5s: the
+          # vs_installer.exe modify --quiet --norestart --wait step itself
+          # failed on the GitHub-hosted runner (installer lock / exit code),
+          # job died in 27-29s and never reached the build. Do NOT retry
+          # that installer command as the primary fix.
+          # Robust fix, no installer needed: ATL headers ARE present under
+          # MSVC 14.52.37025\atlmfc\include (proven in run #2 log), while
+          # the x64 build uses MSVC 14.44.35207, which lacks them. Copy the
+          # whole atlmfc folder (include + lib) from the toolset that HAS
+          # ATL into every other toolset that lacks it, then point
+          # INCLUDE/LIB at the source so cl.exe finds atlbase.h regardless.
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (-not (Test-Path $vswhere)) { throw "ATL copy FAILED: vswhere.exe not found at $vswhere" }
+          $vsPath = (& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath | Select-Object -First 1).Trim()
+          if (-not $vsPath -or -not (Test-Path $vsPath)) { throw "ATL copy FAILED: no Visual Studio installation found via vswhere" }
+          Write-Host "VS install at: $vsPath"
+          $msvcRoot = Join-Path $vsPath "VC\Tools\MSVC"
+          if (-not (Test-Path $msvcRoot)) { throw "ATL copy FAILED: MSVC toolset root not found at $msvcRoot" }
+          $toolsets = Get-ChildItem -Path $msvcRoot -Directory | Sort-Object Name
+          if (-not $toolsets) { throw "ATL copy FAILED: no MSVC toolset folders under $msvcRoot" }
+          Write-Host "MSVC toolsets present: $($toolsets.Name -join ', ')"
+          $required = @("atlbase.h", "atlcomcli.h", "atlstr.h")
+          function Find-AtlSource {
+            param($sets)
+            foreach ($t in $sets) {
+              $ok = $true
+              foreach ($h in $required) {
+                if (-not (Test-Path (Join-Path $t.FullName "atlmfc\include\$h"))) { $ok = $false; break }
+              }
+              if ($ok) { return $t }
+            }
+            return $null
+          }
+          $source = Find-AtlSource $toolsets
+          if (-not $source) {
+            Write-Host "No toolset has ATL headers - trying fallback installer ONCE with --passive (not --quiet --wait) ..."
+            $installer = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vs_installer.exe"
+            if (-not (Test-Path $installer)) { throw "ATL copy FAILED: no MSVC toolset on this runner has atlmfc\include\atlbase.h - checked toolsets: $($toolsets.Name -join ', ') - and vs_installer.exe not found at $installer, so no fallback is possible" }
+            & $installer modify --installPath "$vsPath" --add Microsoft.VisualStudio.Component.VC.ATL --add Microsoft.VisualStudio.Component.VC.ATLMFC --passive --norestart
+            $installerCode = $LASTEXITCODE
+            Write-Host "vs_installer.exe --passive exit code: $installerCode"
+            if ($installerCode -notin 0, 3010) { throw "ATL fallback FAILED: vs_installer.exe --passive exited with code $installerCode - installer modify failed on GitHub-hosted runner, and no ATL copy source exists" }
+            $source = Find-AtlSource $toolsets
+            if (-not $source) { throw "ATL copy FAILED: installer fallback reported exit code $installerCode but still no MSVC toolset has atlmfc\include\atlbase.h - checked toolsets: $($toolsets.Name -join ', ')" }
+          }
+          Write-Host "ATL copy source toolset: $($source.Name) at $($source.FullName)"
+          $srcAtl = Join-Path $source.FullName "atlmfc"
+          $srcInclude = Join-Path $srcAtl "include"
+          $srcLib = Join-Path $srcAtl "lib"
+          if (-not (Test-Path $srcInclude)) { throw "ATL copy FAILED: source include folder missing at $srcInclude" }
+          foreach ($toolset in $toolsets) {
+            if ($toolset.FullName -eq $source.FullName) { continue }
+            $destAtl = Join-Path $toolset.FullName "atlmfc"
+            $hasAtl = $true
+            foreach ($h in $required) {
+              if (-not (Test-Path (Join-Path $destAtl "include\$h"))) { $hasAtl = $false; break }
+            }
+            if ($hasAtl) { Write-Host "ATL already present ($($toolset.Name)), skipping copy"; continue }
+            Write-Host "Copying atlmfc from $($source.Name) to $($toolset.Name) ..."
+            Copy-Item -Path $srcAtl -Destination $destAtl -Recurse -Force
+            foreach ($h in $required) {
+              $p = Join-Path $destAtl "include\$h"
+              if (-not (Test-Path $p)) { throw "ATL copy FAILED: $h still missing after copy for toolset $($toolset.Name) at $p" }
+            }
+            Write-Host "ATL copied ($($toolset.Name)): $destAtl"
+          }
+          # Point the compiler at the ATL source even if a toolset layout
+          # differs, and persist it for the following Build step via GITHUB_ENV.
+          $atlLibX64 = Join-Path $srcLib "x64"
+          if (-not (Test-Path $atlLibX64)) { $atlLibX64 = $srcLib }
+          $env:INCLUDE = "$srcInclude;$env:INCLUDE"
+          $env:LIB = "$atlLibX64;$env:LIB"
+          Add-Content -Path $env:GITHUB_ENV -Value "INCLUDE=$env:INCLUDE"
+          Add-Content -Path $env:GITHUB_ENV -Value "LIB=$env:LIB"
+          Write-Host "INCLUDE now includes: $srcInclude"
+          Write-Host "LIB now includes: $atlLibX64"
+          # Verify ATL headers under EVERY toolset folder, not just the first hit.
+          foreach ($toolset in $toolsets) {
+            $includeDir = Join-Path $toolset.FullName "atlmfc\include"
+            foreach ($header in $required) {
+              $headerPath = Join-Path $includeDir $header
+              if (-not (Test-Path $headerPath)) { throw "ATL copy FAILED: $header missing for toolset $($toolset.Name) at $headerPath - x64 build would fail C1083 again" }
+              Write-Host "ATL verified ($($toolset.Name)): $headerPath"
+            }
+          }
+          # Explicit check for the toolset the x64 build uses.
+          $x64Toolset = Join-Path $msvcRoot "14.44.35207\atlmfc\include"
+          if (Test-Path (Join-Path $msvcRoot "14.44.35207")) {
+            foreach ($header in $required) {
+              $headerPath = Join-Path $x64Toolset $header
+              if (-not (Test-Path $headerPath)) { throw "ATL copy FAILED: $header missing under 14.44.35207 at $headerPath - this is the x64 build toolset" }
+            }
+          }
+          Write-Host "ATL verified for all toolsets, including 14.44.35207 (x64 build toolset), via copy - no installer needed"
+
+      - name: Build OBS Toggle
+        shell: pwsh
+        working-directory: upstream
+        run: |
+          .github/scripts/Build-Windows.ps1 -Target x64 -Configuration RelWithDebInfo
+          if ($LASTEXITCODE -ne 0) { throw "Build-Windows.ps1 FAILED with exit code $LASTEXITCODE" }
+          if (-not (Test-Path build_x64/install/bin/64bit/obs64.exe)) { throw "Build did NOT produce build_x64/install/bin/64bit/obs64.exe" }
+          Write-Host "obs64.exe built"
+
+      - name: Verify toggle build and package
+        shell: pwsh
+        working-directory: upstream
+        run: |
+          # OBS 33 Windows install layout: core-module DLLs live in
+          # core/<plugin>/<plugin>.dll, NOT in bin/64bit/ (only
+          # obs64.exe itself lives in bin/64bit/).
+          $exe = "build_x64/install/bin/64bit/obs64.exe"
+          $core = "build_x64/install/core"
+          if (-not (Test-Path $exe)) { throw "Build did NOT produce $exe" }
+          # NOTHING is removed in the Toggle fork: every stock plugin
+          # must be in the build.
+          foreach ($mod in @("obs-x264", "obs-nvenc", "obs-qsv11", "obs-ffmpeg", "obs-filters", "obs-outputs", "obs-transitions", "obs-browser", "obs-websocket", "obs-vst", "obs-webrtc", "obs-text", "win-capture", "win-dshow", "vlc-video", "decklink", "canvas-chatbox")) {
+            if (-not (Test-Path "$core/$mod/$mod.dll")) { throw "Toggle check FAILED: $mod.dll is NOT in the build - nothing may be removed in this fork" }
+          }
+          if (-not (Test-Path "$core/canvas-chatbox/data/locale/en-US.ini")) { throw "Toggle check FAILED: canvas-chatbox locale data missing at core/canvas-chatbox/data/locale/en-US.ini" }
+          if (-not (Test-Path "$core/obs-webrtc/data/locale/en-US.ini")) { throw "Toggle check FAILED: obs-webrtc locale data missing at core/obs-webrtc/data/locale/en-US.ini" }
+          if (Test-Path "$core/stinger-maker") { throw "Toggle check FAILED: stinger-maker is in the build - it is NOT in this fork" }
+          # PS5 Lite run #6: obs64.exe would not start on sir's PC -
+          # avcodec-62.dll links libx264-164.dll at load time, but
+          # cmake --install never copies it into install/bin/64bit
+          # (official packaging does it via CPack, which we do not run).
+          # Restore it from the obs-deps tree the build downloaded.
+          $x264dll = Get-ChildItem .deps -Recurse -Filter "libx264-164.dll" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $x264dll) { $x264dll = Get-ChildItem build_x64 -Recurse -Filter "libx264-164.dll" -ErrorAction SilentlyContinue | Select-Object -First 1 }
+          if (-not $x264dll) { throw "Toggle check FAILED: libx264-164.dll not found under .deps or build_x64 - avcodec-62.dll needs it to load" }
+          Copy-Item $x264dll.FullName "build_x64/install/bin/64bit/libx264-164.dll" -Force
+          Write-Host "Restored libx264-164.dll from $($x264dll.FullName)"
+          if (-not (Test-Path "build_x64/install/bin/64bit/libx264-164.dll")) { throw "Toggle check FAILED: libx264-164.dll is NOT in the build - avcodec-62.dll needs it, obs64.exe will not start" }
+          # WHIP needs datachannel.dll next to obs64.exe (obs-webrtc.dll
+          # links it at load time). Same story as libx264-164.dll above.
+          if (-not (Test-Path "build_x64/install/bin/64bit/datachannel.dll")) {
+            $dcDll = Get-ChildItem .deps -Recurse -Filter "datachannel.dll" -ErrorAction SilentlyContinue | Select-Object -First 1
+            if (-not $dcDll) { $dcDll = Get-ChildItem build_x64 -Recurse -Filter "datachannel.dll" -ErrorAction SilentlyContinue | Where-Object { $_.FullName -notlike "*\install\*" } | Select-Object -First 1 }
+            if (-not $dcDll) { throw "Toggle check FAILED: datachannel.dll not found under .deps or build_x64 and not in install/bin/64bit - obs-webrtc.dll needs it to load, WHIP will not show" }
+            Copy-Item $dcDll.FullName "build_x64/install/bin/64bit/datachannel.dll" -Force
+            Write-Host "Restored datachannel.dll from $($dcDll.FullName)"
+          }
+          if (-not (Test-Path "build_x64/install/bin/64bit/datachannel.dll")) { throw "Toggle check FAILED: datachannel.dll is NOT in the build - obs-webrtc.dll needs it, WHIP will not show" }
+          if (Test-Path "OBS-Toggle-Ready.zip") { Remove-Item "OBS-Toggle-Ready.zip" -Force }
+          7z a OBS-Toggle-Ready.zip build_x64/install/*
+          if ($LASTEXITCODE -ne 0) { throw "7z packaging FAILED" }
+          (Get-FileHash OBS-Toggle-Ready.zip -Algorithm SHA256).Hash
+          (Get-FileHash $exe -Algorithm SHA256).Hash
+          Get-Item OBS-Toggle-Ready.zip | Select-Object Length
+
+      - name: Upload artifact (zip)
+        uses: actions/upload-artifact@v7
+        with:
+          name: OBS-Toggle-Ready.zip
+          path: upstream/OBS-Toggle-Ready.zip
+
+      - name: Upload artifact (exe)
+        uses: actions/upload-artifact@v7
+        with:
+          name: obs64.exe
+          path: upstream/build_x64/install/bin/64bit/obs64.exe
+
+      - name: Publish release (public download, no login needed)
+        shell: pwsh
+        working-directory: upstream
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "v33.0.3-obs-toggle"
+          # PS5 Lite run #6: this step runs in upstream/, so plain `gh`
+          # commands default to the obsproject/obs-studio repo and
+          # `gh release create` failed HTTP 403 there. Target our repo
+          # explicitly on every gh call.
+          gh release view $tag --repo streamguy100/OBS-Lite-v2 2>$null | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag OBS-Toggle-Ready.zip --repo streamguy100/OBS-Lite-v2 --title "OBS Toggle 33.0.3" --notes "Official OBS Studio 33.0.3, whole - nothing removed - plus Settings > Feature Toggles (GPU switch AMD/Intel/Nvidia/Auto, every encoder/source/filter/transition/output/plugin on/off, Eco / Mobile Mode CPU savers) and Canvas Chatbox (right) + Style Chatbox (left) in-app. WHIP is stock obs-webrtc. Portable zip - run obs64.exe inside OBS-Toggle/bin/64bit/." --prerelease
+            if ($LASTEXITCODE -ne 0) { throw "gh release create FAILED" }
+          } else {
+            gh release upload $tag OBS-Toggle-Ready.zip --repo streamguy100/OBS-Lite-v2 --clobber
+            if ($LASTEXITCODE -ne 0) { throw "gh release upload FAILED" }
+          }
+          Write-Host "Release published: https://github.com/streamguy100/OBS-Lite-v2/releases/tag/$tag"
