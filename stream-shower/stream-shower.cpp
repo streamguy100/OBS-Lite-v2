@@ -4,18 +4,25 @@
  *
  * 1) "Stream Shower" source. Add it to a scene and it shows a Twitch
  *    or Kick stream fullscreen, no chat panel, in the stream itself.
- *    You put in up to 10 links (Twitch or Kick only), in order, and a
- *    timer per link (default 10 minutes). It plays link 1, then
- *    auto-switches to link 2, and so on, then loops back to link 1.
- *    A link can be a full URL (twitch.tv/kaicenat, kick.com/xqc) or
- *    just a channel name (kaicenat) - plain names use the default
- *    platform picked in the properties.
+ *    You put in up to 10 links, in order, and a timer per link
+ *    (default 10 minutes). It plays link 1, then auto-switches to
+ *    link 2, and so on, then loops back to link 1. A link can ONLY
+ *    be twitch.tv/<streamer name> or kick.com/<streamer name>
+ *    (v4, 2026-11-26 — like a Browser Source, but locked to those
+ *    two: any other link, site or format is rejected and does not
+ *    load), or just a channel name (kaicenat) - plain names use the
+ *    default platform picked in the properties.
  *
- * 2) "Stream Watcher" dock, top left. It shows the EXACT same stream
+ * 2) "Stream Watcher" pop-out window (v4, 2026-11-26: was a dock,
+ *    top left — now a separate window, still inside OBS). Open it
+ *    from Tools > Stream Watcher, or the "Open Stream Watcher"
+ *    button in the source properties. It shows the EXACT same stream
  *    the source is showing, at the same time, so you can watch it
- *    while you stream. When the source auto-switches, the dock
+ *    while you stream. When the source auto-switches, the window
  *    switches with it. It also has Prev / Next buttons, and a
  *    countdown showing which link is playing and when it switches.
+ *    Closing the window only hides it — its 1-second timer keeps
+ *    running, so the source keeps auto-switching while it is closed.
  *
  * Extras (sir asked for all five):
  *   - Skip if offline: the next link is checked before it plays; if
@@ -25,13 +32,13 @@
  *     Twitch Client ID + token in the source properties). No page
  *     scraping. A link whose live status cannot be checked is never
  *     skipped on a guess.
- *   - Offline-screen watch (sir, 2026-11-25): the Watcher dock also
+ *   - Offline-screen watch (sir, 2026-11-25): the Watcher window also
  *     watches the player IT is showing for the official Twitch /
  *     Kick offline screen, and when that screen shows, it triggers
  *     the same skip. This is the path that works WITHOUT Helix
  *     credentials: a Twitch link with no credentials can still be
  *     skipped once its offline screen is actually seen. The probe
- *     is DOM / JS inside the dock's own player page — it looks for
+ *     is DOM / JS inside the Watcher window's own player page — it looks for
  *     the offline text AND for the absence of a playing <video>,
  *     and reports back by setting document.title (the only return
  *     channel the OBS browser-panel API gives: executeJavaScript is
@@ -50,7 +57,7 @@
  *   - The Shower source is MUTED by default — other streams' audio
  *     never goes out to viewers unless sir turns on "Play audio from
  *     the current stream", which unmutes only the link playing now.
- *     The Watcher dock (his own monitoring) is not muted.
+ *     The Watcher window (his own monitoring) is not muted.
  *   - Auto-switch happens ONLY on sir's timer, and only to a link
  *     already checked live. It never auto-plays a stream the second
  *     it goes live, and never jumps to an unchecked link.
@@ -62,7 +69,7 @@
  * and renders it fullscreen. The dock is a CEF browser widget from
  * OBS's own browser-panels API (the same API OBS's BrowserDock uses),
  * pointed at the same player URL. One shared playlist state drives
- * both, and the dock's 1-second timer is the switcher: it counts
+ * both, and the Watcher window's 1-second timer is the switcher: it counts
  * down, switches, and re-checks offline status. The dock timer runs
  * even when the dock is hidden, so switching works while streaming.
  *
@@ -95,7 +102,7 @@
  *     inside OBS's browser (cookies are shared with the CEF browser,
  *     same as any Browser Source).
  *   - One Stream Shower source per scene collection is the supported
- *     setup: the dock follows the most recently created source.
+ *     setup: the window follows the most recently created source.
  */
 
 #include <obs-module.h>
@@ -105,13 +112,13 @@
 
 #include <QWidget>
 #include <QMainWindow>
-#include <QDockWidget>
 #include <QTimer>
 #include <QDateTime>
 #include <QLabel>
 #include <QPushButton>
 #include <QHBoxLayout>
 #include <QVBoxLayout>
+#include <QCloseEvent>
 #include <QNetworkAccessManager>
 #include <QNetworkRequest>
 #include <QNetworkReply>
@@ -170,8 +177,12 @@ struct ShowerState {
 
 static ShowerState g_state;
 
+/* The Stream Watcher pop-out window lives below; the source
+ * properties button calls this to open it. */
+void openWatcherWindow();
+
 /* Offline-screen probe (DOM / JS, run inside the Watcher dock's
- * player page — the dock and the source show the same player URL).
+ * player page — the window and the source show the same player URL).
  *
  * Why this route: the OBS browser-panel API gives executeJavaScript
  * (fire-and-forget, no return value) and a titleChanged signal, and
@@ -247,8 +258,50 @@ bool entryIsLive(const ShowerEntry &e)
 	return it->second.status != LiveCache::Status::OFFLINE;
 }
 
-/* Parse one typed link into platform + channel. Plain names use the
- * default platform. Returns false for an empty / unusable link. */
+/* Parse one typed link into platform + channel. STRICT (v4):
+ * ONLY twitch.tv/<name> or kick.com/<name> are accepted as links,
+ * plus the matching official embed forms (player.twitch.tv/?channel=
+ * and player.kick.com/<name>), plus a plain channel name. ANY other
+ * URL / domain / format (youtube.com, twitch.tv/videos/..., a clip
+ * link, a link with an extra path after the name, a link to any other
+ * site) is REJECTED and returns false — the link is skipped and never
+ * loads. Plain names use the default platform. Returns false for an
+ * empty / unusable / rejected link. */
+static bool validChannelName(const QString &c)
+{
+	/* Twitch / Kick names: letters, digits, underscore, 1-25 chars. */
+	if (c.isEmpty() || c.size() > 25)
+		return false;
+	for (QChar ch : c) {
+		if (!ch.isLetterOrNumber() && ch != '_')
+			return false;
+	}
+	return true;
+}
+
+/* One path segment after a host, e.g. "kaicenat" from
+ * "twitch.tv/kaicenat" (trailing slash / ?query allowed). Empty if
+ * there is no segment, or more than one segment (e.g. videos/123). */
+static QString singlePathSegment(QString rest)
+{
+	int cut = rest.indexOf('?');
+	if (cut >= 0)
+		rest = rest.left(cut);
+	cut = rest.indexOf('#');
+	if (cut >= 0)
+		rest = rest.left(cut);
+	/* Embed URLs carry extra params after the name
+	 * (?channel=name&parent=...), so cut at '&' too. */
+	cut = rest.indexOf('&');
+	if (cut >= 0)
+		rest = rest.left(cut);
+	while (rest.endsWith('/'))
+		rest.chop(1);
+	if (rest.isEmpty() || rest.contains('/'))
+		return QString();
+	return rest.trimmed();
+}
+
 bool parseEntry(const QString &raw, const QString &defaultPlatform, ShowerEntry &out)
 {
 	QString text = raw.trimmed();
@@ -258,56 +311,49 @@ bool parseEntry(const QString &raw, const QString &defaultPlatform, ShowerEntry 
 	out.url = text;
 	out.minutes = DEFAULT_MINUTES;
 
-	auto channelAfter = [](const QString &s, const QString &marker) {
-		int idx = s.indexOf(marker);
-		if (idx < 0)
-			return QString();
-		QString rest = s.mid(idx + marker.size());
-		int cut = rest.indexOf('?');
-		if (cut >= 0)
-			rest = rest.left(cut);
-		cut = rest.indexOf('/');
-		if (cut >= 0)
-			rest = rest.left(cut);
-		return rest.trimmed();
-	};
+	/* Strip scheme + www. so twitch.tv/name, https://twitch.tv/name
+	 * and www.twitch.tv/name all match the same way. */
+	QString noScheme = lower;
+	if (noScheme.startsWith("https://"))
+		noScheme = noScheme.mid(8);
+	else if (noScheme.startsWith("http://"))
+		noScheme = noScheme.mid(7);
+	if (noScheme.startsWith("www."))
+		noScheme = noScheme.mid(4);
 
-	if (lower.contains("twitch.tv/")) {
+	if (noScheme.startsWith("twitch.tv/")) {
 		out.platform = "twitch";
-		out.channel = channelAfter(lower, "twitch.tv/");
-	} else if (lower.contains("player.twitch.tv")) {
+		out.channel = singlePathSegment(noScheme.mid(10));
+	} else if (noScheme.startsWith("kick.com/")) {
+		out.platform = "kick";
+		out.channel = singlePathSegment(noScheme.mid(9));
+	} else if (noScheme.startsWith("player.twitch.tv/") || noScheme.startsWith("player.twitch.tv?")) {
+		/* Official Twitch embed: ...?channel=name */
 		out.platform = "twitch";
-		/* ...?channel=name */
-		int idx = lower.indexOf("channel=");
-		out.channel = idx >= 0 ? channelAfter(lower.mid(idx), "channel=") : QString();
-	} else if (lower.contains("kick.com/")) {
+		int idx = noScheme.indexOf("channel=");
+		if (idx < 0)
+			return false;
+		out.channel = singlePathSegment(noScheme.mid(idx + 8));
+	} else if (noScheme.startsWith("player.kick.com/")) {
 		out.platform = "kick";
-		out.channel = channelAfter(lower, "kick.com/");
-	} else if (lower.contains("player.kick.com/")) {
-		out.platform = "kick";
-		out.channel = channelAfter(lower, "player.kick.com/");
+		out.channel = singlePathSegment(noScheme.mid(16));
+	} else if (noScheme.startsWith("twitch.tv") || noScheme.startsWith("kick.com") ||
+		   noScheme.contains("://") || noScheme.contains('.') || noScheme.contains('/')) {
+		/* Looks like a link, but not twitch.tv/<name> or
+		 * kick.com/<name> — rejected. This is the v4 lock: no
+		 * other site, no videos/clips page, no extra path. */
+		return false;
 	} else {
 		/* Plain channel name (or @name). */
 		out.platform = defaultPlatform.isEmpty() ? "twitch" : defaultPlatform;
 		out.channel = text;
 		if (out.channel.startsWith('@'))
 			out.channel = out.channel.mid(1);
-		int cut = out.channel.indexOf('/');
-		if (cut >= 0)
-			out.channel = out.channel.left(cut);
-		cut = out.channel.indexOf('?');
-		if (cut >= 0)
-			out.channel = out.channel.left(cut);
 		out.channel = out.channel.trimmed();
 	}
 	out.channel = out.channel.trimmed();
-	if (out.channel.isEmpty())
+	if (!validChannelName(out.channel))
 		return false;
-	/* A channel name is letters, digits and underscore. */
-	for (QChar c : out.channel) {
-		if (!c.isLetterOrNumber() && c != '_')
-			return false;
-	}
 	return true;
 }
 
@@ -745,6 +791,12 @@ static bool deleteListClicked(obs_properties_t *, obs_property_t *, void *priv)
 	return true;
 }
 
+static bool openWatcherClicked(obs_properties_t *, obs_property_t *, void *)
+{
+	openWatcherWindow();
+	return true;
+}
+
 static obs_properties_t *shower_get_properties(void *data)
 {
 	ShowerData *d = (ShowerData *)data;
@@ -752,18 +804,26 @@ static obs_properties_t *shower_get_properties(void *data)
 	obs_properties_set_flags(props, OBS_PROPERTIES_DEFER_UPDATE);
 
 	obs_property_t *info = obs_properties_add_text(
-		props, "info", "Stream Shower — up to 10 Twitch / Kick links, in order. "
-			       "Type a full link (twitch.tv/kaicenat, kick.com/xqc) or just a "
-			       "channel name (kaicenat). Empty links are skipped. "
+		props, "info", "Stream Shower — up to 10 links, in order. "
+			       "ONLY twitch.tv/<streamer name> or kick.com/<streamer name> "
+			       "are accepted — like a Browser Source, but locked to "
+			       "those two. Any other link, site or format is rejected "
+			       "and will not play. Or just type a channel name "
+			       "(kaicenat). Empty links are skipped. "
 			       "Only show streams you have permission to rebroadcast / "
 			       "co-stream with. The Shower is MUTED by default — turn on "
 			       "'Play audio from the current stream' below to unmute only "
 			       "the link playing now. 'Watch for the offline screen' "
 			       "below also skips a link when the official Twitch / Kick "
 			       "offline screen shows for ~3 seconds — that is the skip "
-			       "that works even without Twitch Helix credentials.",
+			       "that works even without Twitch Helix credentials. "
+			       "Open the Stream Watcher window from Tools > Stream "
+			       "Watcher, or the button below.",
 		OBS_TEXT_INFO);
 	(void)info;
+
+	obs_properties_add_button2(props, "open_watcher", "Open Stream Watcher",
+				   openWatcherClicked, d);
 
 	obs_properties_add_bool(props, "screen_watch",
 				"Watch for the offline screen (skip when the official Twitch / Kick offline screen shows for ~3 seconds)");
@@ -832,10 +892,19 @@ static obs_properties_t *shower_get_properties(void *data)
 namespace {
 
 /* ------------------------------------------------------------------ */
-/* Stream Watcher dock (top left)                                    */
+/* Stream Watcher pop-out window (v4: was a dock, top left)          */
 /* ------------------------------------------------------------------ */
+/* A separate top-level window, still inside OBS and still part of
+ * this same stream-shower.dll — no separate .exe, no new file. It
+ * shows the exact same stream the source is showing, in sync. It is
+ * created once at module load and kept HIDDEN: its 1-second timer
+ * keeps running while it is hidden, so the source keeps
+ * auto-switching (and the offline-screen probe keeps running) even
+ * when the window is closed. Closing the window only hides it
+ * (closeEvent below); Tools > Stream Watcher or the button in the
+ * source properties opens it again. */
 
-class StreamWatcherDock : public QWidget {
+class StreamWatcherWindow : public QWidget {
 	/* No Q_OBJECT on purpose: connects use lambdas, so no moc step
 	 * is needed (same as the chatbox docks). */
 	QLabel *status = nullptr;
@@ -854,8 +923,11 @@ class StreamWatcherDock : public QWidget {
 	QString screenKey; /* "twitch:name" the ticks belong to */
 
 public:
-	StreamWatcherDock(QWidget *parent = nullptr) : QWidget(parent)
+	StreamWatcherWindow(QWidget *parent = nullptr) : QWidget(parent)
 	{
+		setWindowTitle("Stream Watcher");
+		setWindowFlags(Qt::Window);
+		resize(960, 640);
 		QVBoxLayout *layout = new QVBoxLayout(this);
 		layout->setContentsMargins(6, 6, 6, 6);
 
@@ -918,6 +990,16 @@ public:
 		connect(nextBtn, &QPushButton::clicked, this, [this]() { onJump(1); });
 		timer->start();
 		onTick();
+	}
+
+protected:
+	/* Closing the window only hides it — the timer (and the
+	 * source's auto-switching) must keep running while it is
+	 * closed, so the window is never deleted here. */
+	void closeEvent(QCloseEvent *event) override
+	{
+		event->ignore();
+		hide();
 	}
 
 private:
@@ -1203,26 +1285,30 @@ private:
 	}
 };
 
-static QWidget *watcherWidget = nullptr;
+static QWidget *watcherWindow = nullptr;
 
-static void placeDockTopLeft(const char *id)
+void openWatcherWindow()
 {
-	void *mw = obs_frontend_get_main_window();
-	if (!mw)
+	if (!watcherWindow)
+		watcherWindow = new StreamWatcherWindow();
+	watcherWindow->show();
+	watcherWindow->raise();
+	watcherWindow->activateWindow();
+}
+
+/* Tools menu entry: added once OBS has finished loading, so the
+ * main window (and its Tools menu) exists. Adding it in
+ * obs_module_load directly would be too early — the main window is
+ * not built yet at that point. */
+static bool toolsMenuAdded = false;
+
+static void onFrontendEvent(enum obs_frontend_event event, void *)
+{
+	if (event != OBS_FRONTEND_EVENT_FINISHED_LOADING || toolsMenuAdded)
 		return;
-	QMainWindow *main = (QMainWindow *)mw;
-	QDockWidget *dock = main->findChild<QDockWidget *>(QString::fromUtf8(id));
-	if (!dock)
-		return;
-	dock->setFloating(false);
-	main->addDockWidget(Qt::LeftDockWidgetArea, dock);
-	/* Top left: put this dock above the Style Chatbox dock (which
-	 * also lives on the left). Best effort — if the Style dock is not
-	 * there yet, the dock still lands on the left. */
-	QDockWidget *styleDock = main->findChild<QDockWidget *>("style-chatbox");
-	if (styleDock && styleDock != dock)
-		main->splitDockWidget(dock, styleDock, Qt::Vertical);
-	dock->setVisible(true);
+	toolsMenuAdded = true;
+	obs_frontend_add_tools_menu_item("Stream Watcher", [](void *) { openWatcherWindow(); },
+					 nullptr);
 }
 
 } // namespace
@@ -1248,21 +1334,20 @@ bool obs_module_load(void)
 	info.icon_type = OBS_ICON_TYPE_BROWSER;
 	obs_register_source(&info);
 
-	/* Stream Watcher dock, top left. */
-	watcherWidget = new StreamWatcherDock();
-	if (!obs_frontend_add_dock_by_id("stream-shower-watcher", "Stream Watcher",
-					 (void *)watcherWidget)) {
-		blog(LOG_WARNING, "Stream Shower: could not add the Watcher dock on the left");
-		delete watcherWidget;
-		watcherWidget = nullptr;
-		return false;
-	}
-	placeDockTopLeft("stream-shower-watcher");
-	blog(LOG_INFO, "Stream Shower loaded (source + Watcher dock, top left)");
+	/* Stream Watcher pop-out window. Created now, kept HIDDEN —
+	 * its 1-second timer is the switcher, and it must keep running
+	 * even when the window is closed, so the source keeps
+	 * auto-switching. Open it from Tools > Stream Watcher (added
+	 * when OBS finishes loading) or the "Open Stream Watcher"
+	 * button in the source properties. No dock is registered any
+	 * more in v4. */
+	watcherWindow = new StreamWatcherWindow();
+	obs_frontend_add_event_callback(onFrontendEvent, nullptr);
+	blog(LOG_INFO, "Stream Shower loaded (source + Watcher window, Tools > Stream Watcher)");
 	return true;
 }
 
 void obs_module_unload(void)
 {
-	watcherWidget = nullptr;
+	watcherWindow = nullptr;
 }

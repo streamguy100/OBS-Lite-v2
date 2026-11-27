@@ -19,11 +19,11 @@ Base: OBS Studio 33.0.3 (`f2aa9ce69caa7239ef26660b5889de4f53d9880e`).
 - **Stream Shower + Stream Watcher included** as a core module
   (`plugins/stream-shower`): a "Stream Shower" source that shows up
   to 10 Twitch / Kick streams in order, fullscreen, no chat, with a
-  timer per link and auto-switching; and a "Stream Watcher" dock,
-  top left, showing the exact same stream the source is showing,
-  with Prev / Next buttons and a countdown. See "Stream Shower"
-  below. Toggleable under Plugins in Feature Toggles (62 entries
-  now, was 61).
+  timer per link and auto-switching; and a "Stream Watcher" pop-out
+  window (v4, 2026-11-26 — was a dock, top left), showing the exact
+  same stream the source is showing, with Prev / Next buttons and a
+  countdown. See "Stream Shower" below. Toggleable under Plugins in
+  Feature Toggles (62 entries now, was 61).
 - **NO Stinger Maker.**
 
 ## Settings > Feature Toggles
@@ -160,7 +160,12 @@ individually toggleable.
    only, never while streaming or recording. Upstream OBS 33 has no
    telemetry or crash reporting in this tree.
 
-## Stream Shower + Stream Watcher (added 2026-11-24, sir)
+## Stream Shower + Stream Watcher (added 2026-11-24, sir; v4 2026-11-26)
+
+v4 changes only these two things, same file `stream-shower.dll`:
+1. Links are locked to `twitch.tv/<name>` / `kick.com/<name>` only.
+2. The Watcher dock is gone — it is a pop-out window now (Tools >
+   Stream Watcher, or the button in the source properties).
 
 One core module, `plugins/stream-shower`, two parts that work as one.
 
@@ -170,10 +175,12 @@ Add it to a scene (Sources + > Stream Shower). It shows a Twitch or
 Kick stream fullscreen, no chat panel, in the stream output.
 
 - **Up to 10 links, Twitch or Kick only, in order 1–10.** A link can
-  be a full URL (`twitch.tv/kaicenat`, `kick.com/xqc`) or just a
-  channel name (`kaicenat`) — plain names use the "Default platform
-  for plain channel names" setting (Twitch or Kick). Empty links are
-  skipped.
+  ONLY be `twitch.tv/<streamer name>` or `kick.com/<streamer name>`
+  (v4, 2026-11-26 — like a Browser Source, but locked to those two:
+  any other link, site or format is rejected and does not load), or
+  just a channel name (`kaicenat`) — plain names use the "Default
+  platform for plain channel names" setting (Twitch or Kick). Empty
+  links are skipped. The source properties say this plainly.
 - **Timer per link** (1–180 minutes, default 10). Plays link 1 for
   its timer, auto-switches to link 2, and so on, then loops back to
   link 1.
@@ -184,15 +191,21 @@ Kick stream fullscreen, no chat panel, in the stream output.
   same trick OBS's own Stinger transition uses) and renders it
   fullscreen at 1920x1080.
 
-### Stream Watcher dock (top left)
+### Stream Watcher pop-out window (v4, 2026-11-26 — was a dock, top left)
 
-A dock in OBS, top left, for watching Twitch / Kick while streaming.
-It shows the EXACT same stream the source is showing, at the same
-time — when the source auto-switches, the dock switches with it. It
-uses OBS's own CEF browser widget (the `OBS::browser-panels` API,
-the same one OBS's BrowserDock uses), so it is a real player, not a
-screenshot. One shared playlist drives both; the dock's 1-second
-timer is the switcher (it runs even when the dock is hidden).
+A separate pop-out window, still inside OBS and still part of the
+same `stream-shower.dll` — no separate .exe, no new file. Open it
+from Tools > Stream Watcher, or the "Open Stream Watcher" button in
+the source properties. It shows the EXACT same stream the source is
+showing, at the same time — when the source auto-switches, the window
+switches with it. It uses OBS's own CEF browser widget (the
+`OBS::browser-panels` API, the same one OBS's BrowserDock uses), so
+it is a real player, not a screenshot. One shared playlist drives
+both; the window's 1-second timer is the switcher. The window is
+created at module load and kept hidden — closing it only hides it,
+so the timer keeps running and the source keeps auto-switching (and
+the offline-screen probe keeps running) even while the window is
+closed.
 
 ### The five extras (all in)
 
@@ -233,7 +246,7 @@ timer is the switcher (it runs even when the dock is hidden).
    (API says offline OR offline screen seen) causes the same skip,
    and a LIVE probe result is cached LIVE the same way an API
    result is. Toggleable in the source properties ("Watch for the
-   offline screen", on by default). It watches the dock's player —
+   offline screen", on by default). It watches the Watcher window's player —
    the source's private browser_source has no JS API OBS exposes
    to a plugin, so the dock (same player URL) is the only place
    the page can be probed.
@@ -262,7 +275,7 @@ timer is the switcher (it runs even when the dock is hidden).
   for ~3 seconds. If Twitch / Kick change their offline screen
   layout or wording, the probe's text match may need updating; the
   API check keeps working regardless. If OBS / CEF throttles the
-  dock while it is hidden, the screen watch may be delayed — the
+  window while it is hidden, the screen watch may be delayed — the
   API check still runs on its own timer.
   Login-gated / subscriber-only streams need the user signed in
   inside OBS's browser (cookies are shared with the CEF browser,
@@ -270,7 +283,7 @@ timer is the switcher (it runs even when the dock is hidden).
 - The source properties carry a note: only show streams you have
   permission to rebroadcast / co-stream with.
 - One Stream Shower source per scene collection is the supported
-  setup: the dock follows the most recently created source.
+  setup: the window follows the most recently created source.
 
 ## Files
 
@@ -282,9 +295,9 @@ timer is the switcher (it runs even when the dock is hidden).
   against OBS 33.0.3 registration code; unverified ids were left out
   rather than guessed.
 - `canvas-chatbox/` — the chatbox plugin, copied in as a core module.
-- `stream-shower/` — the Stream Shower source + Stream Watcher dock,
-  copied in as a core module (registered after `check_obs_browser()`
-  because it links `OBS::browser-panels`).
+- `stream-shower/` — the Stream Shower source + Stream Watcher
+  pop-out window, copied in as a core module (registered after
+  `check_obs_browser()` because it links `OBS::browser-panels`).
 - `build-obs-toggle.yml` — GitHub Actions workflow (Windows).
 - `README.md` — build/run instructions.
 

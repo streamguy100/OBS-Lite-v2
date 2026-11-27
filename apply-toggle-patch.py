@@ -1501,17 +1501,22 @@ def patch_stream_shower():
         "check_obs_browser()\n",
         "check_obs_browser()\nadd_core_module(stream-shower)\n",
     )
+    shower_cpp = read("plugins/stream-shower/stream-shower.cpp")
+    if "obs_frontend_add_dock_by_id(" in shower_cpp:
+        fail("plugins/stream-shower/stream-shower.cpp still registers a dock — v4 replaced the dock with a pop-out window")
+    if "StreamWatcherDock" in shower_cpp:
+        fail("plugins/stream-shower/stream-shower.cpp still has the old StreamWatcherDock class — v4 renamed it StreamWatcherWindow")
     shower_cmake = read("plugins/stream-shower/CMakeLists.txt")
     if "add_library(stream-shower MODULE)" not in shower_cmake:
         fail("plugins/stream-shower/CMakeLists.txt has no MODULE_LIBRARY target")
     if "OBS::browser-panels" not in shower_cmake:
-        fail("plugins/stream-shower/CMakeLists.txt does not link OBS::browser-panels (Watcher dock needs it)")
+        fail("plugins/stream-shower/CMakeLists.txt does not link OBS::browser-panels (Watcher window needs it)")
     if "AUTOMOC" not in shower_cmake:
         fail("plugins/stream-shower/CMakeLists.txt has no AUTOMOC — "
              "QCefWidget's moc (titleChanged/staticMetaObject) would not be "
              "compiled into stream-shower.dll and the link fails with LNK2019/LNK2001 "
              "(run 45653951425). See the AUTOMOC comment in that CMakeLists.txt.")
-    print("copied plugins/stream-shower (Stream Shower source + Watcher dock, top left)")
+    print("copied plugins/stream-shower (Stream Shower source + Watcher window, Tools > Stream Watcher)")
 
 
 # ----------------------------------------------------------------------
@@ -1562,6 +1567,10 @@ def verify_no_removals():
         ("stream-shower", "frontend/FeatureToggles.hpp"),
         ("obs_browser_init_panel", "plugins/stream-shower/stream-shower.cpp"),
         ("stream_shower", "plugins/stream-shower/stream-shower.cpp"),
+        ("StreamWatcherWindow", "plugins/stream-shower/stream-shower.cpp"),
+        ("obs_frontend_add_tools_menu_item", "plugins/stream-shower/stream-shower.cpp"),
+        ("openWatcherWindow", "plugins/stream-shower/stream-shower.cpp"),
+        ("validChannelName", "plugins/stream-shower/stream-shower.cpp"),
     ):
         if needle not in read(rel):
             fail(f"verify: {needle!r} missing from {rel}")

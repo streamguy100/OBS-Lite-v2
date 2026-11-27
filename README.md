@@ -3,7 +3,7 @@
 Official OBS Studio 33.0.3, whole, plus Settings > Feature Toggles
 (GPU switch, Eco / Mobile Mode CPU savers), the Canvas Chatbox +
 Style Chatbox plugin, and the Stream Shower source + Stream Watcher
-dock. No removals, no Stinger Maker. Full spec:
+pop-out window (Tools > Stream Watcher). No removals, no Stinger Maker. Full spec:
 `OBS-TOGGLE-SPEC.md`.
 
 ## Files in this folder
@@ -16,10 +16,10 @@ dock. No removals, no Stinger Maker. Full spec:
   is toggleable under Plugins.
 - `canvas-chatbox/` — the chatbox plugin (copied into `plugins/` by
   the patch script).
-- `stream-shower/` — the Stream Shower source + Stream Watcher dock
-  (copied into `plugins/` by the patch script, registered as a core
-  module after `check_obs_browser()` because it links
-  `OBS::browser-panels`).
+- `stream-shower/` — the Stream Shower source + Stream Watcher
+  pop-out window (copied into `plugins/` by the patch script,
+  registered as a core module after `check_obs_browser()` because it
+  links `OBS::browser-panels`).
 - `build-obs-toggle.yml` — GitHub Actions workflow (Windows x64).
   Lives in `.github/workflows/` on the `official-toggle` branch.
 - `OBS-TOGGLE-SPEC.md` — the locked spec.
@@ -80,10 +80,12 @@ Unzip `OBS-Toggle-Ready.zip` to a fresh folder and run
    left (View > Docks if hidden).
 5. Settings > Stream > Service offers WHIP (obs-webrtc, stock).
 6. Add a **Stream Shower** source to a scene: put in Twitch / Kick
-   links (up to 10, in order) with a timer per link — it plays them
-   fullscreen, no chat, and auto-switches. The **Stream Watcher**
-   dock (top left) shows the same stream, with Prev / Next and a
-   countdown. If a link goes offline, it is skipped — by the API
-   live check, or by the offline-screen watch once the official
-   Twitch / Kick offline screen shows for ~3 seconds (that path
-   works even without Twitch Helix credentials).
+   links (up to 10, in order — only `twitch.tv/<name>` or
+   `kick.com/<name>`, any other link is rejected) with a timer per
+   link — it plays them fullscreen, no chat, and auto-switches. Open
+   the **Stream Watcher** window from Tools > Stream Watcher (or the
+   button in the source properties) — it shows the same stream, with
+   Prev / Next and a countdown. If a link goes offline, it is skipped
+   — by the API live check, or by the offline-screen watch once the
+   official Twitch / Kick offline screen shows for ~3 seconds (that
+   path works even without Twitch Helix credentials).
