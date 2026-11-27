@@ -167,6 +167,15 @@ v4 changes only these two things, same file `stream-shower.dll`:
 2. The Watcher dock is gone — it is a pop-out window now (Tools >
    Stream Watcher, or the button in the source properties).
 
+v4.1 (2026-11-27, blank-source fix, same file `stream-shower.dll`):
+the private browser is registered as an active child of the Shower
+source (`obs_source_add_active_child` + `enum_active_sources`, the
+pattern OBS's slideshow/Stinger use). Without it the browser was
+never shown, CEF stayed hidden and never painted, so the source
+canvas was blank while the Watcher window worked. Do NOT "fix" this
+with `obs_source_video_tick` — it is internal to libobs
+(obs-internal.h, not exported) and a plugin cannot link it.
+
 One core module, `plugins/stream-shower`, two parts that work as one.
 
 ### Stream Shower source

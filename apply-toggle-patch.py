@@ -1506,6 +1506,13 @@ def patch_stream_shower():
         fail("plugins/stream-shower/stream-shower.cpp still registers a dock — v4 replaced the dock with a pop-out window")
     if "StreamWatcherDock" in shower_cpp:
         fail("plugins/stream-shower/stream-shower.cpp still has the old StreamWatcherDock class — v4 renamed it StreamWatcherWindow")
+    if "obs_source_add_active_child(d->source, d->browser)" not in shower_cpp:
+        fail("plugins/stream-shower/stream-shower.cpp does not register the private browser as an active child — "
+             "the browser is never shown, CEF stays hidden (WasHidden(true)), it never paints, and the source canvas is blank "
+             "(v4 bug reported 2026-11-27: Watcher worked, source showed nothing)")
+    if "info.enum_active_sources = shower_enum_active_sources" not in shower_cpp:
+        fail("plugins/stream-shower/stream-shower.cpp does not enumerate the private browser as an active source — "
+             "show/hide would not propagate to the browser after the first show")
     shower_cmake = read("plugins/stream-shower/CMakeLists.txt")
     if "add_library(stream-shower MODULE)" not in shower_cmake:
         fail("plugins/stream-shower/CMakeLists.txt has no MODULE_LIBRARY target")

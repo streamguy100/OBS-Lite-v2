@@ -568,6 +568,22 @@ static void *shower_create(obs_data_t *settings, obs_source_t *source)
 					       bsettings);
 	obs_data_release(bsettings);
 
+	/* A private source is never in a scene, so OBS core never
+	 * shows / activates it on its own — and a hidden browser source
+	 * tells CEF WasHidden(true), so it never paints a frame and the
+	 * source canvas stays blank (v4 bug, 2026-11-27: the Watcher
+	 * window worked because its QCefWidget is a real visible widget,
+	 * the source did not). Register the browser as an active child —
+	 * the same pattern OBS's own slideshow and Stinger use — so
+	 * showing / activating the Shower source shows / activates the
+	 * browser too. NOTE: do NOT "fix" this by calling
+	 * obs_source_video_tick on the child — that function is internal
+	 * to libobs (obs-internal.h, not exported from obs.dll) and a
+	 * plugin cannot link it. The child's own Tick already runs: core
+	 * ticks every registered source. What was missing was showing. */
+	if (d->browser)
+		obs_source_add_active_child(d->source, d->browser);
+
 	{
 		std::lock_guard<std::mutex> lock(g_state.mutex);
 		if (g_state.browserWeak)
@@ -592,6 +608,8 @@ static void shower_destroy(void *data)
 		g_state.current = 0;
 		g_state.elapsed = 0.0;
 	}
+	if (d->browser)
+		obs_source_remove_active_child(d->source, d->browser);
 	if (d->browser)
 		obs_source_release(d->browser);
 	delete d;
@@ -632,6 +650,20 @@ static void shower_video_render(void *data, gs_effect_t *)
 	ShowerData *d = (ShowerData *)data;
 	if (d->browser)
 		obs_source_video_render(d->browser);
+}
+
+/* Enumerate the private browser as an active child, so OBS core
+ * propagates show / hide / activate / deactivate from the Shower
+ * source to it (obs_source_enum_active_tree only walks children this
+ * callback reports). Without this, add_active_child above only
+ * covers the show state at create time, and the browser goes back
+ * to hidden the next time the source is hidden and re-shown. Same
+ * pattern as OBS's slideshow (ss_enum_sources). */
+static void shower_enum_active_sources(void *data, obs_source_enum_proc_t enum_callback, void *param)
+{
+	ShowerData *d = (ShowerData *)data;
+	if (d && d->browser)
+		enum_callback(d->source, d->browser, param);
 }
 
 /* --- saved lists: load a saved list into the 10 slots --- */
@@ -1331,6 +1363,7 @@ bool obs_module_load(void)
 	info.get_properties = shower_get_properties;
 	info.update = shower_update;
 	info.video_render = shower_video_render;
+	info.enum_active_sources = shower_enum_active_sources;
 	info.icon_type = OBS_ICON_TYPE_BROWSER;
 	obs_register_source(&info);
 
